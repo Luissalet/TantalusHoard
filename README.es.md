@@ -96,7 +96,7 @@ Variables de entorno:
 
 ## Asistentes (MCP)
 
-`python mcp_server.py` es el puente stdio. Nunca abre la base de datos: pasa cada llamada a la app en marcha y la arranca si hace falta. Tiene 43 herramientas:
+`python mcp_server.py` es el puente stdio. Nunca abre la base de datos: pasa cada llamada a la app en marcha y la arranca si hace falta. Tiene 44 herramientas:
 
 - Para empezar: `tantalus_overview`.
 - Para consultas sueltas: `inspect_url`, `secondhand_search` y `web_search`.
@@ -104,7 +104,7 @@ Variables de entorno:
 
 Todas están en [docs/API.md](docs/API.md):
 
-`tantalus_overview`, `tantalus_status`, `watcher_list`, `watcher_get`, `watcher_create`, `watcher_update`, `watcher_delete`, `watcher_run`, `target_add`, `target_list`, `target_get`, `target_update`, `target_delete`, `target_check`, `target_resolve`, `inspect_url`, `events_list`, `events_mark_seen`, `event_dismiss`, `event_notify`, `listings_list`, `listing_set`, `info_items_list`, `info_item_set`, `candidates_list`, `candidate_accept`, `candidate_reject`, `discovery_run`, `web_search`, `secondhand_search`, `secondhand_facebook_login`, `packs_list`, `presets_list`, `presets_install`, `notify_status`, `notify_test`, `telegram_find_chat_id`, `settings_set`, `secret_set`, `scheduler_status`, `runs_list`, `config_export`, `config_import`.
+`tantalus_overview`, `tantalus_status`, `watcher_list`, `watcher_get`, `watcher_create`, `watcher_update`, `watcher_delete`, `watcher_run`, `watcher_rescore`, `target_add`, `target_list`, `target_get`, `target_update`, `target_delete`, `target_check`, `target_resolve`, `inspect_url`, `events_list`, `events_mark_seen`, `event_dismiss`, `event_notify`, `listings_list`, `listing_set`, `info_items_list`, `info_item_set`, `candidates_list`, `candidate_accept`, `candidate_reject`, `discovery_run`, `web_search`, `secondhand_search`, `secondhand_facebook_login`, `packs_list`, `presets_list`, `presets_install`, `notify_status`, `notify_test`, `telegram_find_chat_id`, `settings_set`, `secret_set`, `scheduler_status`, `runs_list`, `config_export`, `config_import`.
 
 El texto de las páginas, los títulos y los fragmentos son datos de terceros. Los resultados de las herramientas lo indican, y el modelo opcional los recibe marcados como contenido no fiable.
 

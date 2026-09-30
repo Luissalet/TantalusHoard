@@ -222,6 +222,11 @@ def score_rules(listing: RawListing, pack: dict[str, Any], settings: Optional[di
         add("high_price", price.price_eur > high_threshold and not cheap_each)
     if rules.get("individual_sale_penalty"):
         add("individual_sale", not has_bulk and price.price_eur is not None and price.price_eur > 0 and not is_free)
+    if rules.get("require_bulk"):
+        plural = rules.get("plural_bulk_regex")
+        several = bool(plural and compile_pattern(plural).search(title_norm))  # "libros de cocina": several, not one
+        add("not_bulk", not has_bulk and not several, "no parece un lote, una colección ni una biblioteca",
+            -abs(float(rules.get("not_bulk_penalty", 12))))
 
     # keywords (generic)
     if include_any and found_any:

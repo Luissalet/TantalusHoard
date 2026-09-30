@@ -378,6 +378,13 @@ def run_watcher_run(svc: Services, a: WatcherIdArgs) -> dict[str, Any]:
     return {"watcher": w["name"], "result": svc.scheduler.run_now(w["mode"], w["id"])}
 
 
+def run_watcher_rescore(svc: Services, a: WatcherIdArgs) -> dict[str, Any]:
+    w = svc.store.watcher(a.watcher_id)
+    if w["mode"] != MODE_SECONDHAND:
+        raise TantalusError("invalid", "Only second-hand watchers have listings to score.")
+    return svc.engine.rescore_listings(w["id"])
+
+
 def run_target_add(svc: Services, a: TargetAddArgs) -> dict[str, Any]:
     w = svc.store.watcher(a.watcher_id)
     if w["mode"] != MODE_AVAILABILITY:
@@ -660,6 +667,8 @@ TOOLS: list[Tool] = [
          DeleteArgs, _ann(False, destructive=True), run_watcher_delete),
     Tool("watcher_run", "Run a watcher now: check every target / sweep second-hand / check news sources. Comprobar ahora.",
          WatcherIdArgs, _ann(False, idempotent=False, open_world=True), run_watcher_run),
+    Tool("watcher_rescore", "Score a second-hand watcher's stored listings again with its current pack (no alerts). Repuntuar anuncios.",
+         WatcherIdArgs, _ann(False), run_watcher_rescore),
     Tool("target_add",
          "Add a product or retailer-search URL to an availability watcher and check it. Añadir URL a vigilar.\n"
          "Supports product pages (JSON-LD / buttons), retailer search pages (new SKUs appear as NEW_SKU) and nvidia-api:search?term=... "

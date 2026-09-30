@@ -239,6 +239,11 @@ class Services:
                    "needs_human": sum(1 for t in ts if t["status"] == "needs_human"),
                    "last_check_ts": max((t.get("last_check_ts") or 0 for t in ts), default=None) or w.get("last_run_ts"),
                    "unseen": sum(1 for e in news if e["watcher_id"] == w["id"])}
+            if w["mode"] == MODE_AVAILABILITY:
+                pending = [t["next_check_ts"] for t in ts if t.get("next_check_ts") and t["status"] != "paused"]
+                row["next_run_ts"] = min(pending) if pending else None
+            if not w["enabled"]:
+                row["next_run_ts"] = None
             if w["mode"] == MODE_SECONDHAND:
                 row["listings_new"] = len(self.store.listings(watcher_id=w["id"], relevant=True, statuses=["new"], limit=500))
             if w["mode"] == MODE_INFORMATION:

@@ -8,6 +8,7 @@ Pipeline for a product target (spec §8): fetch ladder -> extractor -> normalise
 
 from __future__ import annotations
 
+import json
 import logging
 import random
 import re
@@ -488,6 +489,35 @@ class Engine:
         stats["events"] += 1
         if ev["status"] == "confirmed":
             self.dispatch(ev, watcher)
+
+    def rescore_listings(self, watcher_id: str) -> dict[str, Any]:
+        """Score the stored listings again with the watcher's current pack and settings (after tuning a pack). No events."""
+        watcher = self.store.watcher(watcher_id)
+        cfg = watcher.get("config") or {}
+        pack = get_pack(cfg.get("pack") or "generic") or get_pack("generic")
+        settings = {**(pack.get("settings_defaults") or {}), **(cfg.get("settings") or {})}
+        if settings.get("latitude") is None and settings.get("origin_location"):
+            coords = find_municipality_coords(settings["origin_location"])
+            if coords:
+                settings["latitude"], settings["longitude"] = coords[0], coords[1]
+        alert_min = float(cfg.get("alert_min_score") or settings.get("alert_min_score") or pack.get("alert_min_score") or 8)
+        changed = 0
+        rows = self.store.listings(watcher_id=watcher_id, limit=5000)
+        for row in rows:
+            item = RawListing(source=row["source"], url=row["url"], title=row["title"], external_id=row["external_id"],
+                              description=row["description"], price=row["price"], currency=row["currency"],
+                              location_text=row["location_text"], distance_km=row["distance_km"], shipping=row["shipping"],
+                              reserved=row["reserved"], listing_date=(row.get("extra") or {}).get("listing_date"))
+            score = score_listing(item, pack, {**settings, "use_llm": False})
+            relevant = bool(score.relevant and score.score >= alert_min)
+            if relevant != bool(row["relevant"]) or abs(score.score - float(row["score"])) > 0.01:
+                changed += 1
+                self.store.db.execute(
+                    "UPDATE listings SET score = ?, relevant = ?, signals = ?, reason = ?, category = ?, method = ? WHERE id = ?",
+                    (score.score, 1 if relevant else 0, json.dumps([{"key": x.key, "points": x.points, "label": x.label}
+                                                                   for x in score.signals], ensure_ascii=False),
+                     score.reason, score.category, score.method, row["id"]))
+        return {"listings": len(rows), "changed": changed}
 
     # ======================================================================================== information
     def run_information(self, watcher_id: str) -> dict[str, Any]:

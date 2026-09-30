@@ -428,3 +428,13 @@ def test_books_pack_rejects_video_games_and_needs_a_book_word():
     library = RawListing(source="wallapop", url="u3", title="Regalo biblioteca completa", price=0, location_text="Móstoles",
                          description="Vaciado de piso, cientos de libros")
     assert score_listing(library, pack, {"origin_location": "Móstoles"}).relevant
+
+
+def test_books_pack_wants_lots_not_single_free_books():
+    from tantalus_hoard.model import RawListing
+    from tantalus_hoard.secondhand import get_pack, score_listing
+    pack = get_pack("books_bulk")
+    single = RawListing(source="wallapop", url="u4", title="Regalo libro Caminos abiertos", price=0, location_text="Móstoles",
+                        description="Libro en buen estado")
+    s = score_listing(single, pack, {"origin_location": "Móstoles"})
+    assert s.score < pack["alert_min_score"] and any(sig.key == "not_bulk" for sig in s.signals)

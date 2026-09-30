@@ -93,6 +93,16 @@ Annotations: openWorldHint.
 |---|---|---|
 | `watcher_id` (string) | yes |  |
 
+## `watcher_rescore`
+
+Score a second-hand watcher's stored listings again with its current pack (no alerts). Repuntuar anuncios.
+
+Annotations: none.
+
+| Argument | Required | Description |
+|---|---|---|
+| `watcher_id` (string) | yes |  |
+
 ## `target_add`
 
 Add a product or retailer-search URL to an availability watcher and check it. Añadir URL a vigilar.

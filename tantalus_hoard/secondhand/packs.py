@@ -106,6 +106,8 @@ BOOKS_BULK: dict[str, Any] = {
         "include_any": ["libro", "libros", "biblioteca", "novela", "novelas", "enciclopedia", "enciclopedias", "tomo", "tomos",
                         "comic", "comics", "manga", "mangas", "coleccion de libros", "saga", "edicion de bolsillo"],
         "include_scope": "title_lead",
+        "require_bulk": True,
+        "plural_bulk_regex": r"\b(libros|novelas|comics|mangas|tomos|enciclopedias)\b",
         "bulk_keys": ["lot", "collection", "boxes", "moving", "complete_library", "many_books_mentioned",
                       "high_quantity_detected"],
         "high_quantity_threshold": 20,

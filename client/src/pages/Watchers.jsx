@@ -356,7 +356,20 @@ export function TargetsTable({ targets, onChanged }) {
 }
 
 function ListingsPanel({ watcher }) {
-  const { t } = useApp();
+  const { t, notify, toastError } = useApp();
+  const [rescoring, setRescoring] = useState(false);
+  const rescore = async () => {
+    setRescoring(true);
+    try {
+      const r = await api.call("watcher_rescore", { watcher_id: watcher.id });
+      notify(t("rescore_done", { n: r.changed, total: r.listings }));
+      reload();
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setRescoring(false);
+    }
+  };
   const [relevant, setRelevant] = useState(true);
   const [order, setOrder] = useState("score");
   const [status, setStatus] = useState("active");
@@ -374,6 +387,7 @@ function ListingsPanel({ watcher }) {
           <select className="field" style={{ width: "auto" }} aria-label={t("status")} value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="active">{t("lst_active")}</option><option value="saved">{t("lst_saved")}</option><option value="dismissed">{t("lst_dismissed")}</option><option value="gone">{t("lst_gone")}</option><option value="all">{t("all")}</option>
           </select>
+          <button type="button" className="btn btn-sm" disabled={rescoring} title={t("rescore_hint")} onClick={rescore}>{t("rescore")}</button>
         </>
       )}>
       <ErrorBox error={error} />

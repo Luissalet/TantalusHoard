@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent
 BANNED = ("chatgpt", "claude", "openai", "anthropic", "lm studio", "odysseus", "gemini", "copilot", "keepa", "camelcamelcamel", "distill.io", "visualping", "changedetection")
 FINAL_TOOLS = {
     "tantalus_overview", "tantalus_status", "watcher_list", "watcher_get", "watcher_create", "watcher_update", "watcher_delete",
-    "watcher_run", "target_add", "target_list", "target_get", "target_update", "target_delete", "target_check", "target_resolve",
+    "watcher_run", "watcher_rescore", "target_add", "target_list", "target_get", "target_update", "target_delete", "target_check", "target_resolve",
     "inspect_url", "events_list", "events_mark_seen", "event_dismiss", "event_notify", "listings_list", "listing_set",
     "info_items_list", "info_item_set", "candidates_list", "candidate_accept", "candidate_reject", "discovery_run", "web_search",
     "secondhand_search", "secondhand_facebook_login", "packs_list", "presets_list", "presets_install", "notify_status", "notify_test",

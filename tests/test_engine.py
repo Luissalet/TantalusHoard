@@ -260,3 +260,12 @@ def test_llm_budget_falls_back_to_rules():
     assert llm.json("s", "u") is None and llm.skipped == 1
     now[0] = 61
     assert llm.json("s", "u") == {"ok": True}
+
+
+def test_rescore_updates_stored_listings(svc):
+    w = tool(svc, "watcher_create", name="Libros", mode="secondhand", config={"pack": "books_bulk", "settings": {"origin_location": "Móstoles"}})
+    row = svc.store.insert_listing(w["id"], {"source": "wallapop", "external_id": "x", "url": "https://es.wallapop.com/item/x",
+                                              "title": "Grand Theft Auto V - PS4", "description": "Videojuego, se hacen lotes de libros",
+                                              "price": 10, "location_text": "Móstoles", "score": 17, "relevant": True})
+    out = tool(svc, "watcher_rescore", watcher_id=w["id"])
+    assert out == {"listings": 1, "changed": 1} and not svc.store.listing(row["id"])["relevant"]
