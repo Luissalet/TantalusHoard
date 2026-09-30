@@ -4,7 +4,7 @@ Every tool is served by the app at `GET /api/agent/tools` and `POST /api/agent/c
 
 ## `tantalus_overview`
 
-What is new since the last visit: alerts, buyable now, blocked targets, top finds. Novedades del vigilante de productos.
+What is new since the last visit: alerts, buyable now, blocked, top finds. Novedades del vigilante.
 
 The dashboard in one call: unseen confirmed events (restock, price drop, pre-order, new SKU, second-hand find, news), targets buyable now, targets that need a human (CAPTCHA/login), per-watcher status, top second-hand listings, material news, proposed URLs.
 Sinónimos: novedades, qué hay nuevo, restock, reposición, ofertas, alertas, resumen, estado de los vigilantes.
@@ -39,9 +39,9 @@ Annotations: readOnlyHint, idempotentHint.
 
 ## `watcher_create`
 
-Create a watcher: availability (stock, price), secondhand (Wallapop, Facebook) or information (news). Crear vigilante.
+Create a watcher: availability (stock, price), secondhand or information (news). Crear vigilante.
 
-For availability, pass targets (product or retailer-search URLs) and discovery queries. Sinónimos: vigila, avísame cuando haya stock, alerta de precio, busca de segunda mano, seguimiento de noticias.
+Secondhand covers Wallapop and Facebook Marketplace. For availability, pass targets (product or retailer-search URLs) and discovery queries. Sinónimos: vigila, avísame cuando haya stock, alerta de precio, busca de segunda mano, seguimiento de noticias.
 
 Annotations: none.
 
@@ -142,7 +142,7 @@ Annotations: readOnlyHint, idempotentHint.
 
 ## `target_get`
 
-One target with observations (evidence, confidence factors), price history and events. Historial de un producto.
+One target with observations (evidence, confidence), price history and events. Historial de producto.
 
 Annotations: readOnlyHint, idempotentHint.
 
@@ -153,7 +153,9 @@ Annotations: readOnlyHint, idempotentHint.
 
 ## `target_update`
 
-Change a target: label, URL, SKU/EAN, MSRP, price ceiling or threshold, seller policy, fetch tier, pause. Editar objetivo.
+Change a target: label, URL, SKU, MSRP, price limits, seller policy, fetch tier, pause. Editar objetivo.
+
+SKU/EAN, price ceiling and price threshold are separate fields.
 
 Annotations: none.
 
@@ -199,7 +201,7 @@ Annotations: openWorldHint.
 
 ## `target_resolve`
 
-Open a visible browser window on the app profile so the user can pass a CAPTCHA or log in, then re-check. Resolver bloqueo.
+Open a visible browser so the user passes a CAPTCHA or login, then re-check. Resolver bloqueo.
 
 Only when the user is at the computer and asks. Never solves anything itself.
 
@@ -212,7 +214,7 @@ Annotations: openWorldHint.
 
 ## `inspect_url`
 
-One-off: read a product or search page and report stock state, price, seller and evidence, without saving. ¿Hay stock? ¿Cuánto cuesta?
+One-off stock, price and seller of a product or search page, without saving. ¿Hay stock? ¿Precio?
 
 Sinónimos: mira esta página, comprueba precio, está disponible, agotado.
 
@@ -227,7 +229,7 @@ Annotations: readOnlyHint, idempotentHint, openWorldHint.
 
 ## `events_list`
 
-Events (RESTOCK, PRICE_DROP, PREORDER_OPEN, NEW_SKU, NEW_LISTING, INFO_CHANGE...) with filters. Historial de avisos.
+Events (RESTOCK, PRICE_DROP, PREORDER_OPEN, NEW_SKU, NEW_LISTING...) with filters. Historial de avisos.
 
 Annotations: readOnlyHint, idempotentHint.
 
@@ -272,7 +274,7 @@ Annotations: openWorldHint.
 
 ## `listings_list`
 
-Second-hand listings found by the watchers, with score, signals and distance. Anuncios de segunda mano encontrados.
+Second-hand listings found by the watchers, with score, signals and distance. Anuncios de segunda mano.
 
 Annotations: readOnlyHint, idempotentHint.
 
@@ -367,7 +369,7 @@ Annotations: openWorldHint.
 
 ## `web_search`
 
-Web or news search (DuckDuckGo, Bing, Google News, Bing News; SearXNG, Brave if set). Buscar en la web o noticias.
+Web or news search (DuckDuckGo, Bing, Google News, Bing News, SearXNG, Brave). Buscar en web o noticias.
 
 Annotations: readOnlyHint, idempotentHint, openWorldHint.
 
@@ -380,7 +382,7 @@ Annotations: readOnlyHint, idempotentHint, openWorldHint.
 
 ## `secondhand_search`
 
-One-off Wallapop (or Facebook Marketplace) search scored by a pack, near a town, without saving. Buscar de segunda mano.
+One-off Wallapop or Facebook search scored by a pack, near a town, without saving. Buscar de segunda mano.
 
 Packs: books_bulk (free books in bulk), generic, collectibles_sealed (sealed TCG, anti-scalper). Sinónimos: wallapop, segunda mano, lotes, gratis, cerca de mí.
 
@@ -427,7 +429,7 @@ Annotations: none.
 
 ## `notify_status`
 
-Notification channels (toast, hub, ntfy, telegram, email): configured, enabled, recent sends. Canales de aviso.
+Notification channels (toast, hub, ntfy, telegram, email): setup, switches, recent sends. Canales de aviso.
 
 Annotations: readOnlyHint, idempotentHint.
 
@@ -449,7 +451,7 @@ Annotations: readOnlyHint, idempotentHint, openWorldHint.
 
 ## `settings_set`
 
-Change settings: channels, ntfy server, e-mail backend (auto/faustus/smtp) and Faustus folder, language, model, pause. Ajustes.
+Change settings: channels, ntfy server, e-mail backend and Faustus folder, language, model, pause. Ajustes.
 
 Keys: notify.<channel>.enabled|min_severity, notify.ntfy.server, notify.email.backend|faustus_dir|faustus_owner, notify.language, llm.enabled, scheduler.paused.
 
@@ -461,7 +463,7 @@ Annotations: none.
 
 ## `secret_set`
 
-Save a write-only secret (Telegram token/chat id, ntfy topic/token, SMTP, Brave key, SearXNG URL). Guardar credencial.
+Save a write-only secret (Telegram, ntfy, SMTP, Brave key, SearXNG URL). Guardar credencial.
 
 Annotations: none.
 

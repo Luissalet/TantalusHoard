@@ -61,4 +61,4 @@ def test_license_readme_and_first_lines():
     assert "Luis María Salete Cuartero" in (ROOT / "LICENSE").read_text(encoding="utf-8")
     assert "CAPTCHA" in readme
     for tool in TOOLS:  # the first line is what tool retrieval indexes: short, with EN + ES keywords
-        assert len(tool.description.split("\n", 1)[0]) <= 140, tool.name
+        assert len(tool.description.split("\n", 1)[0]) <= 110, tool.name  # the family audit and tool-RAG cut there
