@@ -50,6 +50,27 @@ PRESETS: list[dict[str, Any]] = [
         ],
     },
     {
+        "id": "pokemon-30-news",
+        "name": "Pokémon 30.º aniversario — avisos de reposición (noticias)",
+        "mode": MODE_INFORMATION,
+        "interval_min": 120,
+        "notes": "Confirmación secundaria (nivel 3 de la especificación): anuncios de reposición o fechas de tiendas y cadenas. "
+                 "No sustituye a la comprobación de las fichas.",
+        "config": {
+            "sources": [
+                {"kind": "search", "value": 'Pokémon "30 aniversario" reposición', "label": "Reposición"},
+                {"kind": "search", "value": 'Pokémon "30 aniversario" stock tiendas España', "label": "Stock en tiendas"},
+                {"kind": "search", "value": 'Pokémon "30 aniversario" Elite Trainer Box', "label": "ETB"},
+            ],
+            "info": {"must_terms": ["30 aniversario", "30th anniversary"],
+                     "boost_terms": ["reposición", "restock", "stock", "reserva", "preventa", "game", "el corte inglés", "carrefour",
+                                     "elite trainer box", "booster bundle", "fecha"],
+                     "exclude_terms": [], "freshness_days": 14,
+                     "official_domains": ["pokemon.com", "game.es", "elcorteingles.es", "carrefour.es"]},
+        },
+        "targets": [],
+    },
+    {
         "id": "dgx-spark-es",
         "name": "NVIDIA DGX Spark Founders Edition — compra en España",
         "mode": MODE_AVAILABILITY,

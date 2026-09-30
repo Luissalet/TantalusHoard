@@ -69,9 +69,9 @@ def test_bridge_roundtrip(server):
         assert {"tantalus_overview", "target_add", "inspect_url", "secondhand_search"} <= names
         ok = rpc(proc, {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "presets_install", "arguments": {}}})
         body = json.loads(ok["result"]["content"][0]["text"])
-        assert len(body["created"]) == 6
+        assert len(body["created"]) == 7
         listed = rpc(proc, {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "watcher_list", "arguments": {}}})
-        assert len(json.loads(listed["result"]["content"][0]["text"])["watchers"]) == 6
+        assert len(json.loads(listed["result"]["content"][0]["text"])["watchers"]) == 7
         err = rpc(proc, {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "target_get", "arguments": {"target_id": "t_none"}}})
         detail = json.loads(err["result"]["content"][0]["text"])
         assert detail["code"] == "not_found" and detail["hint"]

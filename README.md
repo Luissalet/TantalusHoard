@@ -54,11 +54,12 @@ Secrets live in `.env` (`TANTALUS_TELEGRAM_TOKEN=…`) or are saved write-only f
 
 ## Ready-made watchers
 
-The first start installs six watchers:
+The first start installs seven watchers:
 
 - Pokémon TCG 30th anniversary ETB and Booster Bundle: search pages at GAME, El Corte Inglés and xtralife, plus discovery queries.
 - DGX Spark in Spain: the NVIDIA marketplace and the NVIDIA product API, with a 4,800 € threshold, plus a news watcher for Spanish sale announcements, because the marketplace blocks automated reads.
 - RTX Spark / N1X 128 GB in Europe: an information watcher.
+- News about Pokémon 30th anniversary restocks announced by shops and chains (secondary confirmation).
 - The free-books radar.
 - A disabled sealed-ETB second-hand watcher.
 

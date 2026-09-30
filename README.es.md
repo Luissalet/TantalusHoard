@@ -65,11 +65,12 @@ Las credenciales van en `.env` (`TANTALUS_TELEGRAM_TOKEN=…`) o se guardan desd
 
 ## Vigilantes preparados
 
-En el primer arranque se instalan seis vigilantes:
+En el primer arranque se instalan siete vigilantes:
 
 - ETB y Booster Bundle del 30.º aniversario de Pokémon: búsquedas de GAME, El Corte Inglés y xtralife, más consultas de descubrimiento.
 - DGX Spark en España: marketplace de NVIDIA y API de productos de NVIDIA, con umbral de 4.800 €, más un vigilante de noticias de venta en España, porque el marketplace bloquea la lectura automática.
 - RTX Spark / N1X de 128 GB en Europa: vigilante de información.
+- Noticias de reposición del 30.º aniversario de Pokémon anunciadas por tiendas y cadenas (confirmación secundaria).
 - El radar de libros gratis.
 - Un vigilante de ETB precintada de segunda mano, desactivado.
 
