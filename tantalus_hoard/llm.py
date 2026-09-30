@@ -37,12 +37,34 @@ def _parse_json(text: str) -> Optional[dict[str, Any]]:
 
 
 class LLM:
-    def __init__(self, link_sync: Any, gate: Callable[[], str] | None = None, enabled: Callable[[], bool] | None = None):
+    """``max_calls``/``window_s``: a rolling budget. The local model is shared with other apps and one call can take a
+    minute on a large model, so a sweep with many borderline items falls back to the rules instead of queueing."""
+
+    def __init__(self, link_sync: Any, gate: Callable[[], str] | None = None, enabled: Callable[[], bool] | None = None,
+                 *, max_calls: int = 12, window_s: float = 600.0, clock: Callable[[], float] | None = None):
+        import threading
+        import time as _time
         self.link = link_sync
         self.gate = gate or (lambda: "")
         self.enabled = enabled or (lambda: True)
         self.calls = 0
         self.failures = 0
+        self.skipped = 0
+        self.max_calls = max_calls
+        self.window_s = window_s
+        self._clock = clock or _time.monotonic
+        self._recent: list[float] = []
+        self._lock = threading.Lock()
+
+    def _take_budget(self) -> bool:
+        now = self._clock()
+        with self._lock:
+            self._recent = [t for t in self._recent if now - t < self.window_s]
+            if len(self._recent) >= self.max_calls:
+                self.skipped += 1
+                return False
+            self._recent.append(now)
+            return True
 
     def available(self) -> tuple[bool, str]:
         if self.link is None:
@@ -53,9 +75,9 @@ class LLM:
         return (not reason), reason
 
     def json(self, system: str, user: str, *, required: tuple[str, ...] = (), max_tokens: int = 800,
-             effort: str = "low", temperature: float = 0.1) -> Optional[dict[str, Any]]:
+             effort: str = "off", temperature: float = 0.1) -> Optional[dict[str, Any]]:
         ok, _reason = self.available()
-        if not ok:
+        if not ok or not self._take_budget():
             return None
         self.calls += 1
         try:

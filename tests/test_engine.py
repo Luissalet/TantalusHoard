@@ -243,3 +243,20 @@ def test_offer_matching_is_whole_word_and_strict_for_short_term_lists():
     assert not offer_matches(Offer(title="Estatua Albedo 10º Aniversario Escala 1:30"), terms, must, [])
     assert not offer_matches(Offer(title="Pokémon Pokopia 2030 edición aniversario"), terms, must, [])
     assert not offer_matches(Offer(title="Fundas Pokémon 30 Aniversario"), terms, must, ["fundas"])
+
+
+def test_llm_budget_falls_back_to_rules():
+    from tantalus_hoard.llm import LLM
+
+    class OkLink:
+        def chat(self, messages, **kw):
+            class R:
+                text = '{"ok": true}'
+            return R()
+
+    now = [0.0]
+    llm = LLM(OkLink(), max_calls=2, window_s=60, clock=lambda: now[0])
+    assert llm.json("s", "u") == {"ok": True} and llm.json("s", "u") == {"ok": True}
+    assert llm.json("s", "u") is None and llm.skipped == 1
+    now[0] = 61
+    assert llm.json("s", "u") == {"ok": True}

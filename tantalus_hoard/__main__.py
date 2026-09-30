@@ -23,6 +23,7 @@ def _already_running(port: int) -> bool:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # one line per request would drown the log
     config = Config.from_env()
     if config.port_strict and not can_listen(config.port):
         # Decide before touching the data dir: a second instance must never

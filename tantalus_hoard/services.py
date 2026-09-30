@@ -277,7 +277,8 @@ class Services:
         ok, reason = self.llm.available()
         return {"service": SERVICE, "version": __version__, "data_dir": str(self.config.data_dir), "uptime_s": int(time.time() - self.started_at),
                 "counts": self.counts(), "scheduler": self.scheduler.status(), "channels": self.notifier.channels_status(),
-                "llm": {"available": ok, "reason": reason, "calls": self.llm.calls, "failures": self.llm.failures},
+                "llm": {"available": ok, "reason": reason, "calls": self.llm.calls, "failures": self.llm.failures, "skipped_budget": self.llm.skipped,
+                        "budget": f"{self.llm.max_calls} per {int(self.llm.window_s // 60)} min"},
                 "search_engines": self.websearch.available_engines() if hasattr(self.websearch, "available_engines") else [],
                 "browser": {"enabled": self.config.browser, "playwright": playwright_installed()},
                 "offline": self.config.offline}
