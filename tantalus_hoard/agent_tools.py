@@ -602,6 +602,8 @@ def run_notify_status(svc: Services, _: Empty) -> dict[str, Any]:
 
 
 def run_notify_test(svc: Services, a: NotifyTestArgs) -> dict[str, Any]:
+    if a.channel == "email" and svc.notifier.email_backend() == "faustus":
+        svc.notifier.faustus_status(refresh=True)
     return svc.notifier.test(a.channel)
 
 
@@ -611,7 +613,10 @@ def run_telegram_chat_id(svc: Services, _: Empty) -> dict[str, Any]:
 
 
 def run_settings_set(svc: Services, a: SettingsSetArgs) -> dict[str, Any]:
-    return {"settings": svc.set_settings(a.values)}
+    out = svc.set_settings(a.values)
+    if any(k.startswith("notify.email.") for k in a.values) and svc.notifier.email_backend() == "faustus":
+        svc.notifier.faustus_status(refresh=True)
+    return {"settings": out}
 
 
 def run_secret_set(svc: Services, a: SecretSetArgs) -> dict[str, Any]:
@@ -732,7 +737,9 @@ TOOLS: list[Tool] = [
          _ann(False, idempotent=False, open_world=True), run_notify_test),
     Tool("telegram_find_chat_id", "After the user writes to the bot, find the chat id with getUpdates. Obtener chat id de Telegram.",
          Empty, _ann(True, open_world=True), run_telegram_chat_id),
-    Tool("settings_set", "Change settings: channel enabled / minimum severity, ntfy server, language, model use, pause scheduler. Ajustes.",
+    Tool("settings_set", "Change settings: channels, ntfy server, e-mail backend (auto/faustus/smtp) and Faustus folder, language, model, pause. Ajustes."
+         "\nKeys: notify.<channel>.enabled|min_severity, notify.ntfy.server, notify.email.backend|faustus_dir|faustus_owner, "
+         "notify.language, llm.enabled, scheduler.paused.",
          SettingsSetArgs, _ann(False), run_settings_set),
     Tool("secret_set", "Save a write-only secret (Telegram token/chat id, ntfy topic/token, SMTP, Brave key, SearXNG URL). Guardar credencial.",
          SecretSetArgs, _ann(False), run_secret_set),

@@ -50,7 +50,7 @@ Every point shown in the UI comes from a named signal. An optional local model o
 | Family bus | None. Emits `tantalus.alert` and `tantalus.event.*` to Hoard Hub. |
 | ntfy | Pick a long random topic, subscribe to it in the ntfy app, and save it in Settings (`NTFY_TOPIC`). |
 | Telegram | Create a bot with @BotFather, save the token, write `/start` to the bot, then press "Find chat id". |
-| Email | SMTP host, port, user, app password, from and to. Gmail needs an app password. |
+| Email | None when Faustus has a mail account: Tantalus sends through that account and the password stays in Faustus. Alerts go to the account itself unless you set recipients. Otherwise give SMTP host, port, user, app password, from and to (Gmail needs an app password). The **Send with** setting picks `auto`, `faustus` or `smtp`. |
 
 Secrets live in `.env` (`TANTALUS_TELEGRAM_TOKEN=…`) or are saved write-only from Settings. They are never returned by the API. Each channel has an on/off switch and a minimum severity.
 
@@ -77,7 +77,7 @@ venv\Scripts\python -m tantalus_hoard        # http://127.0.0.1:5197
 
 The built UI is committed. `npm install && npm run build` rebuilds it after client changes. Hoard Hub starts the app from `faustus-plugin.json`. The headless browser uses Edge through Playwright, so no browser download is needed on Windows. Elsewhere, run `python -m playwright install chromium` once.
 
-Environment: `TANTALUS_PORT` (5197), `TANTALUS_DATA_DIR`, `TANTALUS_SCHEDULER=0` (no background checks), `TANTALUS_BROWSER=0` (HTTP only), `TANTALUS_OFFLINE=1`, `TANTALUS_SEARXNG_URL`, `TANTALUS_BRAVE_KEY`.
+Environment: `TANTALUS_PORT` (5197), `TANTALUS_DATA_DIR`, `TANTALUS_SCHEDULER=0` (no background checks), `TANTALUS_BROWSER=0` (HTTP only), `TANTALUS_OFFLINE=1`, `TANTALUS_SEARXNG_URL`, `TANTALUS_BRAVE_KEY`, `TANTALUS_FAUSTUS_DIR` (the Faustus folder for e-mail, when it is not next to this app).
 
 ## Assistants (MCP)
 

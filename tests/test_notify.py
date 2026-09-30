@@ -28,8 +28,11 @@ def settings(**values):
     return lambda key, default=None: values.get(key.replace(".", "__"), default)
 
 
+NO_FAUSTUS = {"notify__email__faustus_dir": "/nonexistent/faustus"}   # keeps tests independent of a Faustus next to the repo
+
+
 def make(cfg=None, sett=None, **kw):
-    return Notifier(cfg or Cfg(), settings(**(sett or {})), clock=lambda: 42.0, platform=kw.pop("platform", "win32"), **kw)
+    return Notifier(cfg or Cfg(), settings(**{**NO_FAUSTUS, **(sett or {})}), clock=lambda: 42.0, platform=kw.pop("platform", "win32"), **kw)
 
 
 # ------------------------------------------------------------------ labels
@@ -267,7 +270,7 @@ EMAIL_SECRETS = {"SMTP_USER": "me@gmail.com", "SMTP_PASSWORD": "hunter2"}
 def test_email_defaults_gmail_ssl_and_multipart():
     FakeSMTP.instances = []
     n = make(Cfg(**EMAIL_SECRETS), {"notify__email__enabled": "1"}, smtp_factory=FakeSMTP)
-    assert n.channels_status()["email"]["detail"] == "smtp.gmail.com:465"
+    assert n.channels_status()["email"]["detail"] == "SMTP smtp.gmail.com:465"
     res = n.send(EVENT, ["email"])
     assert res[0]["ok"]
     smtp = FakeSMTP.instances[0]
@@ -315,3 +318,141 @@ def test_language_setting_switches_text():
              transport=httpx.MockTransport(lambda r: seen.append(r) or httpx.Response(200)))
     n.send(EVENT, ["ntfy"])
     assert json.loads(seen[0].content)["title"].startswith("Price drop:")
+
+
+# ------------------------------------------------------------------ e-mail through Faustus
+def fake_faustus(tmp_path, venv=True):
+    root = tmp_path / "faustus"
+    (root / "mcp_servers").mkdir(parents=True)
+    (root / "mcp_servers" / "email_server.py").write_text("# stub\n")
+    if venv:
+        (root / "venv" / "bin").mkdir(parents=True)
+        (root / "venv" / "bin" / "python").write_text("")
+    return root
+
+
+class Runner:
+    def __init__(self, answers):
+        self.answers, self.calls = list(answers), []
+
+    def __call__(self, argv, **kw):
+        self.calls.append((argv, json.loads(kw["input"]), kw))
+        answer = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
+        return SimpleNamespace(returncode=0, stdout="noise from an import\n" + (json.dumps(answer) if answer is not None else "boom"), stderr="")
+
+
+def test_email_auto_backend_picks_faustus_without_own_credentials(tmp_path, monkeypatch):
+    monkeypatch.setenv("TANTALUS_TELEGRAM_TOKEN", "leak-me-not")
+    root = fake_faustus(tmp_path)
+    ok = {"ok": True, "error": "", "account": "Main", "from": "abc***@example.org", "to": ["abc***@example.org"], "server": "smtp.example.org:587"}
+    runner = Runner([ok])
+    n = make(Cfg(), {"notify__email__enabled": "1", "notify__email__faustus_dir": str(root)}, faustus_runner=runner)
+    assert n.email_backend() == "faustus" and n.faustus_dir() == root.resolve()
+    st = n.channels_status()["email"]
+    assert st["configured"] and st["backend"] == "faustus" and st["backend_setting"] == "auto"
+    assert st["detail"] == "Faustus account Main <abc***@example.org> → abc***@example.org"
+    argv, request, kw = runner.calls[0]
+    assert argv[0].endswith("python") and argv[1].endswith("faustus_mail.py") and argv[2] == str(root.resolve())
+    assert request["action"] == "status" and kw["cwd"] == str(root.resolve()) and not any(k.startswith("TANTALUS_") for k in kw["env"])
+    res = n.send(EVENT, ["email"])
+    assert res[0]["ok"] and len(runner.calls) == 2          # the good status was cached: one status call, one send
+    _, sent, _ = runner.calls[1]
+    assert sent["action"] == "send" and sent["subject"].startswith("Bajada de precio") and sent["to"] == []
+    assert "https://www.pccomponentes.com/rtx-spark?a=1&b=2" in sent["text"] and "&lt;128GB&gt;" in sent["html"]
+
+
+def test_email_own_credentials_win_in_auto_and_backend_can_be_forced(tmp_path):
+    root = fake_faustus(tmp_path)
+    runner = Runner([{"ok": True, "from": "x***@y.z", "to": ["q***@y.z"]}])
+    n = make(Cfg(**EMAIL_SECRETS), {"notify__email__faustus_dir": str(root)}, faustus_runner=runner)
+    assert n.email_backend() == "smtp"
+    forced = make(Cfg(**EMAIL_SECRETS, SMTP_TO="a@x.com, b@y.com"),
+                  {"notify__email__enabled": "1", "notify__email__backend": "faustus", "notify__email__faustus_dir": str(root),
+                   "notify__email__faustus_owner": "admin"}, faustus_runner=runner)
+    assert forced.email_backend() == "faustus" and forced.send(EVENT, ["email"])[0]["ok"]
+    _, sent, _ = runner.calls[-1]
+    assert sent["to"] == ["a@x.com", "b@y.com"] and sent["owner"] == "admin"
+    smtp_only = make(Cfg(), {"notify__email__backend": "smtp", "notify__email__faustus_dir": str(root)})
+    assert smtp_only.email_backend() == "smtp" and "TANTALUS_SMTP_PASSWORD" in smtp_only.channels_status()["email"]["detail"]
+
+
+def test_email_faustus_errors_are_reported_not_raised(tmp_path):
+    missing = make(Cfg(), {"notify__email__backend": "faustus"})
+    assert missing.channels_status()["email"]["configured"] is False and "folder not found" in missing.channels_status()["email"]["detail"]
+    no_venv = make(Cfg(), {"notify__email__backend": "faustus", "notify__email__faustus_dir": str(fake_faustus(tmp_path, venv=False))})
+    assert no_venv.test("email")["error"] == "Faustus: Faustus has no venv with Python"
+    root = tmp_path / "f2"
+    root.mkdir()
+    fake = fake_faustus(root)
+    garbage = make(Cfg(), {"notify__email__backend": "faustus", "notify__email__faustus_dir": str(fake)}, faustus_runner=Runner([None]))
+    assert garbage.test("email")["error"] == "Faustus: Faustus mail helper exit 0"
+    runner = Runner([{"ok": True, "from": "a***@b.c", "to": ["a***@b.c"]}, {"ok": False, "error": "authentication failed"}])
+    failing = make(Cfg(), {"notify__email__enabled": "1", "notify__email__backend": "faustus", "notify__email__faustus_dir": str(fake)},
+                   faustus_runner=runner)
+    assert failing.send(EVENT, ["email"])[0]["error"] == "authentication failed" and failing._faustus_status is None
+
+    def broken(*a, **k):
+        raise OSError("no such file")
+
+    crashed = make(Cfg(), {"notify__email__backend": "faustus", "notify__email__faustus_dir": str(fake)}, faustus_runner=broken)
+    assert crashed.test("email")["error"] == "Faustus: Faustus mail helper: OSError"
+
+
+def test_faustus_mail_helper_against_a_stub_email_server(tmp_path, monkeypatch):
+    """The helper runs the stub's own config resolution, fixes a port/security mismatch and never prints secrets."""
+    import sys as _sys
+    from tantalus_hoard.notify import faustus_mail
+
+    root = tmp_path / "faustus"
+    (root / "mcp_servers").mkdir(parents=True)
+    (root / "mcp_servers" / "__init__.py").write_text("")
+    (root / "mcp_servers" / "email_server.py").write_text(
+        "import os\n"
+        "print('import noise')\n"
+        "def _read_accounts_from_db():\n"
+        "    return [{'owner': 'admin', 'enabled': 1}]\n"
+        "def _resolve_send_config(account=None):\n"
+        "    if os.environ.get('ODYSSEUS_MCP_EMAIL_OWNER') != 'admin':\n"
+        "        raise ValueError('owner required')\n"
+        "    return account, {'smtp_host': 'smtp.example.org', 'smtp_port': 587, 'smtp_security': 'ssl', 'smtp_user': 'me@example.org',\n"
+        "                     'smtp_password': 'hunter2', 'from_address': 'me@example.org', 'account_name': 'Main'}\n")
+    monkeypatch.delenv("ODYSSEUS_MCP_EMAIL_OWNER", raising=False)
+    monkeypatch.delenv("ODYSSEUS_EMAIL_OWNER", raising=False)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(_sys, "path", list(_sys.path))
+    for name in [m for m in _sys.modules if m == "mcp_servers" or m.startswith("mcp_servers.")]:
+        monkeypatch.delitem(_sys.modules, name)
+    made = []
+
+    class SMTP:
+        def __init__(self, host, port, timeout=None, context=None):
+            self.kind, self.host, self.port, self.sent = "plain", host, port, []
+            made.append(self)
+
+        def starttls(self, context=None):
+            self.kind = "starttls"
+
+        def login(self, user, password):
+            assert (user, password) == ("me@example.org", "hunter2")
+
+        def send_message(self, msg):
+            self.sent.append(msg)
+
+        def quit(self):
+            pass
+
+    class SMTP_SSL(SMTP):
+        def __init__(self, *a, **k):
+            raise AssertionError("implicit TLS must not be used on 587")
+
+    monkeypatch.setattr(faustus_mail.smtplib, "SMTP", SMTP)
+    monkeypatch.setattr(faustus_mail.smtplib, "SMTP_SSL", SMTP_SSL)
+    status = faustus_mail.handle({"action": "status"}, str(root))
+    assert status == {"ok": True, "error": "", "account": "Main", "from": "me***@example.org", "to": ["me***@example.org"],
+                      "server": "smtp.example.org:587"} and not made
+    sent = faustus_mail.handle({"action": "send", "subject": "Hi\r\nBcc: x@evil.com", "text": "body", "html": "<p>b</p>",
+                                "to": ["other@example.net", "bad address"]}, str(root))
+    assert sent["ok"] and made[0].kind == "starttls"
+    msg = made[0].sent[0]
+    assert msg["To"] == "other@example.net" and msg["Subject"] == "Hi Bcc: x@evil.com" and "me@example.org" in msg["From"]
+    assert "hunter2" not in json.dumps(sent)

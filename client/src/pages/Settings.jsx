@@ -135,9 +135,10 @@ function ChannelCard({ channel, info, secrets, settings, onChanged, testResult, 
           <span className={`chip ${testResult.ok ? "chip-ok" : "chip-danger"}`} role="status">{testResult.ok ? t("test_ok") : `${t("test_failed")}: ${testResult.error}`}</span>
         )}
       </div>
+      {channel === "email" && <EmailBackend info={info} settings={settings} setSetting={setSetting} busy={busy} />}
       {fields && (
-        <details open={!info.configured}>
-          <summary className="font-semibold">{t("credentials")}</summary>
+        <details open={!info.configured && !(channel === "email" && info.backend === "faustus")}>
+          <summary className="font-semibold">{channel === "email" ? t("smtp_credentials") : t("credentials")}</summary>
           <div className="mt-3 space-y-3">
             {channel === "telegram" && <ol className="help m-0 list-decimal pl-5"><li>{t("tg_step1")}</li><li>{t("tg_step2")}</li><li>{t("tg_step3")}</li></ol>}
             {channel === "ntfy" && <p className="help">{t("ntfy_steps")}</p>}
@@ -162,7 +163,7 @@ function ChannelCard({ channel, info, secrets, settings, onChanged, testResult, 
                 </>
               )}
             </SecretsForm>
-            {channel === "ntfy" && <NtfyServer value={settings["notify.ntfy.server"]} onSave={(v) => setSetting("notify.ntfy.server", v)} busy={busy["notify.ntfy.server"]} />}
+            {channel === "ntfy" && <TextSetting label={t("ntfy_server")} value={settings["notify.ntfy.server"]} fallback="https://ntfy.sh" onSave={(v) => setSetting("notify.ntfy.server", v)} busy={busy["notify.ntfy.server"]} />}
           </div>
         </details>
       )}
@@ -170,13 +171,44 @@ function ChannelCard({ channel, info, secrets, settings, onChanged, testResult, 
   );
 }
 
-function NtfyServer({ value, onSave, busy }) {
+function TextSetting({ label, value, fallback = "", placeholder = "", onSave, busy, className = "max-w-[420px]" }) {
   const { t } = useApp();
-  const [v, setV] = useState(value || "https://ntfy.sh");
+  const [v, setV] = useState(value || fallback);
   return (
     <div className="flex items-end gap-2">
-      <Field label={t("ntfy_server")} className="max-w-[420px] flex-1"><input className="field" value={v} onChange={(e) => setV(e.target.value)} /></Field>
-      <Busy type="button" className="btn btn-sm" busy={busy} onClick={() => onSave(v)} disabled={v === value}>{t("save")}</Busy>
+      <Field label={label} className={`${className} flex-1`}><input className="field" value={v} placeholder={placeholder} onChange={(e) => setV(e.target.value)} /></Field>
+      <Busy type="button" className="btn btn-sm" busy={busy} onClick={() => onSave(v.trim())} disabled={v.trim() === (value || fallback)}>{t("save")}</Busy>
+    </div>
+  );
+}
+
+// E-mail can go out through the account configured in Faustus (its password stays in Faustus) or through SMTP credentials of its own.
+function EmailBackend({ info, settings, setSetting, busy }) {
+  const { t } = useApp();
+  const mode = settings["notify.email.backend"] || "auto";
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="block">
+          <span className="label">{t("email_backend")}</span>
+          <select className="field" style={{ width: "auto" }} value={mode} disabled={busy["notify.email.backend"]} onChange={(e) => setSetting("notify.email.backend", e.target.value)}>
+            {["auto", "faustus", "smtp"].map((m) => <option key={m} value={m}>{t(`email_backend_${m}`)}</option>)}
+          </select>
+        </label>
+        <Chip className={info.backend === "faustus" ? "chip-accent" : ""}>{t("email_backend_now")}: {info.backend === "faustus" ? "Faustus" : "SMTP"}</Chip>
+      </div>
+      {info.backend === "faustus" && <p className="help">{t("email_faustus_hint")}</p>}
+      {mode !== "smtp" && (
+        <details open={info.backend === "faustus" && !info.configured}>
+          <summary className="font-semibold">{t("email_faustus_options")}</summary>
+          <div className="mt-3 space-y-3">
+            <TextSetting label={t("email_faustus_dir")} value={settings["notify.email.faustus_dir"]} placeholder={info.faustus_dir || t("email_faustus_dir_auto")}
+              onSave={(v) => setSetting("notify.email.faustus_dir", v)} busy={busy["notify.email.faustus_dir"]} className="max-w-[520px]" />
+            <TextSetting label={t("email_faustus_owner")} value={settings["notify.email.faustus_owner"]} placeholder={t("email_faustus_owner_auto")}
+              onSave={(v) => setSetting("notify.email.faustus_owner", v)} busy={busy["notify.email.faustus_owner"]} className="max-w-[260px]" />
+          </div>
+        </details>
+      )}
     </div>
   );
 }

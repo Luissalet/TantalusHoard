@@ -1,5 +1,9 @@
 """Notification channels: Windows toast, family hub, ntfy, Telegram and e-mail.
 
+E-mail has two backends: plain SMTP with Tantalus's own credentials, or the account configured in Faustus
+(``faustus_mail.py`` runs under Faustus's Python, so that password never reaches Tantalus). ``auto`` uses SMTP when
+Tantalus has its own user and password and Faustus otherwise.
+
 ``Notifier.send(event, channels)`` returns one ``{channel, ok, error}`` per channel and never raises.
 Secrets come only from ``config.secret(...)`` (environment / .env); the database holds only the
 ``notify.<channel>.enabled`` / ``min_severity`` / non-secret settings. Nothing secret is logged or
@@ -9,6 +13,7 @@ put in an error string.
 from __future__ import annotations
 
 import html
+import json
 import logging
 import os
 import re
@@ -37,6 +42,10 @@ APP_ID = "Tantalus's Hoard"
 POWERSHELL_APP_ID = r"{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe"
 DEFAULT_ENABLED = {"toast": True, "hub": True, "ntfy": False, "telegram": False, "email": False}
 HTTP_TIMEOUT_S = 10.0
+EMAIL_BACKENDS = ("auto", "faustus", "smtp")
+FAUSTUS_HELPER = Path(__file__).with_name("faustus_mail.py")
+FAUSTUS_TIMEOUT_S = 60
+FAUSTUS_STATUS_TTL_S = 300.0     # a good status is reused for five minutes, a failure for thirty seconds
 
 
 def xml_escape(text: str) -> str:
@@ -78,7 +87,8 @@ class Notifier:
     def __init__(self, config: Any, db_settings_get: Callable[[str, Optional[str]], Optional[str]], *, transport: Any = None,
                  clock: Callable[[], float] = time.time, smtp_factory: Optional[Callable[..., Any]] = None,
                  toast_backend: Optional[Callable[[str, str, str, bool], None]] = None,
-                 powershell_runner: Optional[Callable[..., Any]] = None, platform: Optional[str] = None, icon_path: Optional[Path] = None):
+                 powershell_runner: Optional[Callable[..., Any]] = None, platform: Optional[str] = None, icon_path: Optional[Path] = None,
+                 faustus_runner: Optional[Callable[..., Any]] = None):
         self.config = config
         self.get = db_settings_get
         self.transport = transport
@@ -88,6 +98,8 @@ class Notifier:
         self.powershell_runner = powershell_runner or subprocess.run
         self.platform = platform or sys.platform
         self.icon_path = icon_path if icon_path is not None else REPO_ROOT / "app-icon.png"
+        self.faustus_runner = faustus_runner or subprocess.run
+        self._faustus_status: Optional[tuple[float, str, dict[str, Any]]] = None
 
     # ------------------------------------------------------------------ settings and status
     def _setting(self, key: str, default: str = "") -> str:
@@ -151,9 +163,11 @@ class Notifier:
             missing = [f"TANTALUS_{n}" for n in ("TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID") if not self._secret(n)]
             return (not missing), ("bot + chat id set" if not missing else "missing " + ", ".join(missing))
         if channel == "email":
+            if self.email_backend() == "faustus":
+                return self._faustus_configured()
             e = self._email_settings()
             missing = [n for n, v in (("TANTALUS_SMTP_USER", e["user"]), ("TANTALUS_SMTP_PASSWORD", e["password"]), ("TANTALUS_SMTP_TO", e["to"])) if not v]
-            return (not missing), (f"{e['host']}:{e['port']}" if not missing else "missing " + ", ".join(missing))
+            return (not missing), (f"SMTP {e['host']}:{e['port']}" if not missing else "missing " + ", ".join(missing))
         return False, "unknown channel"
 
     def channels_status(self) -> dict[str, dict[str, Any]]:
@@ -162,7 +176,92 @@ class Notifier:
             configured, detail = self._configured(channel)
             status[channel] = {"configured": configured, "enabled": self._enabled(channel), "detail": detail,
                                "min_severity": self._min_severity(channel)}
+        status["email"]["backend"] = self.email_backend()
+        status["email"]["backend_setting"] = self._email_backend_setting()
+        status["email"]["faustus_dir"] = str(self.faustus_dir() or "")
         return status
+
+    # ------------------------------------------------------------------ e-mail through Faustus
+    def _email_backend_setting(self) -> str:
+        value = self._setting("notify.email.backend", "auto").lower()
+        return value if value in EMAIL_BACKENDS else "auto"
+
+    def email_backend(self) -> str:
+        """``faustus`` or ``smtp``: the backend a mail would use now."""
+        mode = self._email_backend_setting()
+        if mode != "auto":
+            return mode
+        if self._secret("SMTP_USER") and self._secret("SMTP_PASSWORD"):
+            return "smtp"
+        return "faustus" if self.faustus_dir() else "smtp"
+
+    def faustus_dir(self) -> Optional[Path]:
+        """The Faustus folder: setting, TANTALUS_FAUSTUS_DIR, FAUSTUS_DIR, then a ``faustus`` folder next to this app."""
+        raw = [self._setting("notify.email.faustus_dir"), self._secret("FAUSTUS_DIR"), os.environ.get("FAUSTUS_DIR", "")]
+        candidates = [Path(r).expanduser() for r in raw if r and r.strip()]
+        if not any(r and r.strip() for r in raw):
+            candidates += [REPO_ROOT.parent / "faustus", REPO_ROOT.parent.parent / "faustus"]
+        for path in candidates:
+            try:
+                if (path / "mcp_servers" / "email_server.py").is_file():
+                    return path.resolve()
+            except OSError:
+                continue
+        return None
+
+    @staticmethod
+    def faustus_python(root: Path) -> Optional[str]:
+        for rel in ("venv/Scripts/python.exe", ".venv/Scripts/python.exe", "venv/bin/python", ".venv/bin/python"):
+            if (root / rel).is_file():
+                return str(root / rel)
+        return None
+
+    def _faustus_call(self, request: dict[str, Any]) -> dict[str, Any]:
+        root = self.faustus_dir()
+        if root is None:
+            return {"ok": False, "error": "Faustus folder not found (set notify.email.faustus_dir)"}
+        python = self.faustus_python(root)
+        if python is None:
+            return {"ok": False, "error": "Faustus has no venv with Python"}
+        owner = self._setting("notify.email.faustus_owner")
+        if owner:
+            request = {**request, "owner": owner}
+        env = {k: v for k, v in os.environ.items() if not k.startswith("TANTALUS_")}   # Tantalus's own secrets stay here
+        env["PYTHONIOENCODING"] = "utf-8"
+        try:
+            done = self.faustus_runner([python, str(FAUSTUS_HELPER), str(root)], input=json.dumps(request), capture_output=True, text=True,
+                                       encoding="utf-8", timeout=FAUSTUS_TIMEOUT_S, cwd=str(root), env=env,
+                                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except (OSError, subprocess.SubprocessError) as exc:
+            return {"ok": False, "error": f"Faustus mail helper: {type(exc).__name__}"}
+        lines = [line for line in (getattr(done, "stdout", "") or "").splitlines() if line.strip().startswith("{")]
+        try:
+            answer = json.loads(lines[-1]) if lines else {}
+        except ValueError:
+            answer = {}
+        if not isinstance(answer, dict) or "ok" not in answer:
+            return {"ok": False, "error": f"Faustus mail helper exit {getattr(done, 'returncode', '?')}"}
+        return answer
+
+    def faustus_status(self, refresh: bool = False) -> dict[str, Any]:
+        key = str(self.faustus_dir() or "") + "|" + self._setting("notify.email.faustus_owner")
+        cached = self._faustus_status
+        if cached and not refresh and cached[1] == key:
+            ttl = FAUSTUS_STATUS_TTL_S if cached[2].get("ok") else 30.0
+            if self.clock() - cached[0] < ttl:
+                return cached[2]
+        result = self._faustus_call({"action": "status", "to": self._secret("SMTP_TO")})
+        self._faustus_status = (self.clock(), key, result)
+        return result
+
+    def _faustus_configured(self) -> tuple[bool, str]:
+        if self.faustus_dir() is None:
+            return False, "Faustus folder not found (set notify.email.faustus_dir or TANTALUS_FAUSTUS_DIR)"
+        st = self.faustus_status()
+        if not st.get("ok"):
+            return False, "Faustus: " + str(st.get("error") or "unavailable")[:200]
+        name = f"{st.get('account')} " if st.get("account") else ""
+        return True, f"Faustus account {name}<{st.get('from')}> → {', '.join(st.get('to') or [])}"
 
     # ------------------------------------------------------------------ sending
     def send(self, event: dict[str, Any], channels: list[str]) -> list[dict[str, Any]]:
@@ -321,17 +420,29 @@ class Notifier:
         client.starttls(context=context)
         return client
 
-    def _send_email(self, event: dict[str, Any], title: str, body: str) -> str:
-        e = self._email_settings()
-        msg = EmailMessage()
-        msg["Subject"] = re.sub(r"[\r\n]+", " ", title)[:200]
-        msg["From"], msg["To"] = e["from"] or e["user"], ", ".join(e["to"])
+    @staticmethod
+    def _email_parts(event: dict[str, Any], title: str, body: str) -> tuple[str, str, str]:
+        subject = re.sub(r"[\r\n]+", " ", title)[:200]
         url = _http_url(event.get("url"))
-        text = body + (f"\n\n{url}" if url else "")
-        msg.set_content(text or title)
+        text = (body + (f"\n\n{url}" if url else "")) or title
         rows = "".join(f"<p>{html.escape(line)}</p>" for line in body.splitlines() if line.strip())
         link = f'<p><a href="{html.escape(url, quote=True)}">{html.escape(url)}</a></p>' if url else ""
-        msg.add_alternative(f"<html><body><h3>{html.escape(title)}</h3>{rows}{link}</body></html>", subtype="html")
+        return subject, text, f"<html><body><h3>{html.escape(title)}</h3>{rows}{link}</body></html>"
+
+    def _send_email(self, event: dict[str, Any], title: str, body: str) -> str:
+        subject, text, html_body = self._email_parts(event, title, body)
+        if self.email_backend() == "faustus":
+            to = [a.strip() for a in self._secret("SMTP_TO").split(",") if a.strip()]
+            answer = self._faustus_call({"action": "send", "subject": subject, "text": text, "html": html_body, "to": to})
+            if not answer.get("ok"):
+                self._faustus_status = None      # re-check the account on the next status
+            return "" if answer.get("ok") else str(answer.get("error") or "Faustus mail failed")[:200]
+        e = self._email_settings()
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"], msg["To"] = e["from"] or e["user"], ", ".join(e["to"])
+        msg.set_content(text)
+        msg.add_alternative(html_body, subtype="html")
         client = self.smtp_factory(e["host"], e["port"], e["port"] == 465)
         try:
             client.login(e["user"], e["password"])
@@ -346,7 +457,6 @@ class Notifier:
             except Exception:  # noqa: BLE001
                 pass
         return ""
-
 
 def telegram_discover_chat_id(token: str, *, transport: Any = None) -> dict[str, Any]:
     """``{ok, chat_id, name, error}`` from the bot's latest update. The user must write to the bot first."""
@@ -369,4 +479,4 @@ def telegram_discover_chat_id(token: str, *, transport: Any = None) -> dict[str,
     return {"ok": False, "chat_id": "", "name": "", "error": "no messages yet: write to the bot first"}
 
 
-__all__ = ["Notifier", "CHANNELS", "telegram_discover_chat_id", "build_toast_ps1", "compose", "label", "LABELS", "format_price", "xml_escape"]
+__all__ = ["Notifier", "CHANNELS", "EMAIL_BACKENDS", "telegram_discover_chat_id", "build_toast_ps1", "compose", "label", "LABELS", "format_price", "xml_escape"]

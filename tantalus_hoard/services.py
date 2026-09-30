@@ -21,7 +21,7 @@ from .info import InfoSentry
 from .llm import LLM
 from .model import BUYABLE, MODE_AVAILABILITY, MODE_INFORMATION, MODE_SECONDHAND, MODES
 from .modelprobe import ModelProbe
-from .notify import CHANNELS, Notifier
+from .notify import CHANNELS, EMAIL_BACKENDS, Notifier
 from .presets import PRESETS, get_preset
 from .scheduler import Scheduler
 from .search import WebSearch
@@ -36,6 +36,9 @@ UI_SETTINGS = {
     "llm.enabled": ("1", "0"),
     "scheduler.paused": ("0", "1"),
     "notify.ntfy.server": None,
+    "notify.email.backend": EMAIL_BACKENDS,
+    "notify.email.faustus_dir": None,
+    "notify.email.faustus_owner": None,
     **{f"notify.{c}.enabled": ("1", "0") for c in CHANNELS},
     **{f"notify.{c}.min_severity": ("low", "medium", "high") for c in CHANNELS},
 }

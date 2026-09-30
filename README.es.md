@@ -61,7 +61,7 @@ Cada punto que muestra la interfaz viene de una señal con nombre. Un modelo loc
 | Bus de la familia | Ninguna. Emite `tantalus.alert` y `tantalus.event.*` a Hoard Hub. |
 | ntfy | Elige un tema largo y aleatorio, suscríbete a él en la app de ntfy y guárdalo en Ajustes (`NTFY_TOPIC`). |
 | Telegram | Crea un bot con @BotFather, guarda el token, escríbele `/start` y pulsa «Buscar chat id». |
-| Correo | Servidor, puerto, usuario, contraseña de aplicación, remitente y destinatario. Gmail pide contraseña de aplicación. |
+| Correo | Nada si Faustus tiene una cuenta de correo: Tantalus envía con esa cuenta y la contraseña se queda en Faustus. Los avisos llegan a la propia cuenta salvo que indiques destinatarios. Si no, servidor, puerto, usuario, contraseña de aplicación, remitente y destinatario (Gmail pide contraseña de aplicación). El ajuste **Enviar con** elige `auto`, `faustus` o `smtp`. |
 
 Las credenciales van en `.env` (`TANTALUS_TELEGRAM_TOKEN=…`) o se guardan desde Ajustes como solo escritura. La API nunca las devuelve. Cada canal tiene interruptor y gravedad mínima.
 
@@ -96,6 +96,7 @@ Variables de entorno:
 - `TANTALUS_BROWSER=0`: solo HTTP.
 - `TANTALUS_OFFLINE=1`: sin red.
 - `TANTALUS_SEARXNG_URL` y `TANTALUS_BRAVE_KEY`: motores de búsqueda adicionales.
+- `TANTALUS_FAUSTUS_DIR`: carpeta de Faustus para el correo, si no está junto a esta app.
 
 ## Asistentes (MCP)
 

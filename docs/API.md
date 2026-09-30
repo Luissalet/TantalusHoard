@@ -449,7 +449,9 @@ Annotations: readOnlyHint, idempotentHint, openWorldHint.
 
 ## `settings_set`
 
-Change settings: channel enabled / minimum severity, ntfy server, language, model use, pause scheduler. Ajustes.
+Change settings: channels, ntfy server, e-mail backend (auto/faustus/smtp) and Faustus folder, language, model, pause. Ajustes.
+
+Keys: notify.<channel>.enabled|min_severity, notify.ntfy.server, notify.email.backend|faustus_dir|faustus_owner, notify.language, llm.enabled, scheduler.paused.
 
 Annotations: none.
 
