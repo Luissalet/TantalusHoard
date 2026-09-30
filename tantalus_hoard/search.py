@@ -252,7 +252,9 @@ def parse_news_rss(xml_text: str, engine: str) -> list[SearchHit]:
         publisher = (source.text or "").strip() if source is not None and source.text else ""
         publisher_url = source.get("url", "") if source is not None else ""
         desc = BeautifulSoup(item.findtext("description") or "", "html.parser").get_text(" ", strip=True)
-        snippet = desc if desc and desc != title else ""
+        # Google News descriptions repeat the title plus the publisher: keep only what adds something
+        base_title = title.rsplit(" - ", 1)[0] if publisher and title.endswith(" - " + publisher) else title
+        snippet = "" if (not desc or desc == title or desc.startswith(base_title)) else desc
         if publisher and not snippet:
             snippet = publisher
         hit = SearchHit(url=link, title=title, snippet=snippet[:400], engine=engine, rank=rank, published=item.findtext("pubDate"))
