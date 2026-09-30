@@ -438,3 +438,19 @@ def test_books_pack_wants_lots_not_single_free_books():
                         description="Libro en buen estado")
     s = score_listing(single, pack, {"origin_location": "Móstoles"})
     assert s.score < pack["alert_min_score"] and any(sig.key == "not_bulk" for sig in s.signals)
+
+
+def test_books_pack_ignores_seller_boilerplate_and_textbooks():
+    from tantalus_hoard.model import RawListing
+    from tantalus_hoard.secondhand import get_pack, score_listing
+    pack = get_pack("books_bulk")
+    cfg = {"origin_location": "Móstoles", "use_llm": False}
+    novel = RawListing(source="wallapop", url="u5", title="Las sandalias del pescador", price=3, location_text="Móstoles",
+                       description="Novela en buen estado. Hago lotes con otros productos de mi perfil.")
+    assert score_listing(novel, pack, cfg).score < pack["alert_min_score"]
+    school = RawListing(source="wallapop", url="u6", title="Libro Física y química 4 ESO", price=5, location_text="Móstoles",
+                        description="Como nuevo")
+    assert any(s.key == "textbook" for s in score_listing(school, pack, cfg).signals)
+    lot = RawListing(source="wallapop", url="u7", title="Lote 13 libros por 9€", price=9, location_text="Móstoles",
+                     description="13 libros, los títulos en las fotos")
+    assert score_listing(lot, pack, cfg).score >= pack["alert_min_score"]

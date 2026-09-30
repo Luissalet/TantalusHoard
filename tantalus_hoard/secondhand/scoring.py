@@ -134,6 +134,9 @@ def score_rules(listing: RawListing, pack: dict[str, Any], settings: Optional[di
     combined = f"{title} {listing.description or ''}"
     normalized = normalize_text(combined)
     title_norm = normalize_text(title)
+    if rules.get("boilerplate_regex"):
+        # drop seller boilerplate before any pattern runs (it would turn every listing into a "lot")
+        normalized = re.sub(r"\s+", " ", compile_pattern(rules["boilerplate_regex"]).sub(" ", normalized)).strip()
 
     price = price_info_for(listing)
     is_free = price.is_free or price.price_eur == 0.0

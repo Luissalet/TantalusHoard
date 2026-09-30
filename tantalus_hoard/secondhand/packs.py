@@ -58,7 +58,8 @@ _BOOKS_PATTERNS: dict[str, dict[str, str]] = {
         "label": "parece digital/ebook",
     },
     "free_download": {"regex": r"\bdescarga gratis\b|\bdescarga gratuita\b", "label": "descarga gratuita (no físico)"},
-    "textbook": {"regex": r"\blibros? de texto\b", "label": "libro de texto"},
+    "textbook": {"regex": r"\b(libros? de texto|eso|bachillerato|bach|primaria|selectividad|ebau|evau|workbook|student'?s book|"
+                          r"testbuilder|cuaderno de (ejercicios|actividades))\b", "label": "libro de texto"},
     "encyclopedia": {"regex": r"\benciclopedia\b", "label": "enciclopedia"},
 }
 
@@ -107,6 +108,9 @@ BOOKS_BULK: dict[str, Any] = {
                         "comic", "comics", "manga", "mangas", "coleccion de libros", "saga", "edicion de bolsillo"],
         "include_scope": "title_lead",
         "require_bulk": True,
+        # seller boilerplate that is not about this listing ("se hacen lotes con otros productos de mi perfil")
+        "boilerplate_regex": r"(hago|hacemos|se hacen|se pueden hacer|acepto|haria|hare|puedo hacer)\s+(un\s+)?(lotes?|packs?)[^.!\n]*"
+                             r"|[^.!\n]*(otros|mas) (productos|articulos|anuncios)[^.!\n]*|[^.!\n]*mi perfil[^.!\n]*",
         "plural_bulk_regex": r"\b(libros|novelas|comics|mangas|tomos|enciclopedias)\b",
         "bulk_keys": ["lot", "collection", "boxes", "moving", "complete_library", "many_books_mentioned",
                       "high_quantity_detected"],
