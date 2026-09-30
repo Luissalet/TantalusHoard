@@ -47,7 +47,7 @@ Every point shown in the UI comes from a named signal. An optional local model o
 | Channel | Setup |
 |---|---|
 | Windows toast | None. Uses `winotify` when installed, otherwise PowerShell. |
-| Family bus | None. Emits `tantalus.alert` and `tantalus.event.*` to Hoard Hub. |
+| Family bus | None. Emits `tantalus.alert` and `tantalus.event.*` to Hoard Hub. The hub's recommended rule `rule-watcher-alert-digest` turns each alert into a `digest.item` for the daily recap. |
 | ntfy | Pick a long random topic, subscribe to it in the ntfy app, and save it in Settings (`NTFY_TOPIC`). |
 | Telegram | Create a bot with @BotFather, save the token, write `/start` to the bot, then press "Find chat id". |
 | Email | None when Faustus has a mail account: Tantalus sends through that account and the password stays in Faustus. Alerts go to the account itself unless you set recipients. Otherwise give SMTP host, port, user, app password, from and to (Gmail needs an app password). The **Send with** setting picks `auto`, `faustus` or `smtp`. |

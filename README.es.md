@@ -58,7 +58,7 @@ Cada punto que muestra la interfaz viene de una señal con nombre. Un modelo loc
 | Canal | Configuración |
 |---|---|
 | Notificación de Windows | Ninguna. Usa `winotify` si está instalado y, si no, PowerShell. |
-| Bus de la familia | Ninguna. Emite `tantalus.alert` y `tantalus.event.*` a Hoard Hub. |
+| Bus de la familia | Ninguna. Emite `tantalus.alert` y `tantalus.event.*` a Hoard Hub. La regla recomendada del hub `rule-watcher-alert-digest` convierte cada aviso en un `digest.item` para el resumen diario. |
 | ntfy | Elige un tema largo y aleatorio, suscríbete a él en la app de ntfy y guárdalo en Ajustes (`NTFY_TOPIC`). |
 | Telegram | Crea un bot con @BotFather, guarda el token, escríbele `/start` y pulsa «Buscar chat id». |
 | Correo | Nada si Faustus tiene una cuenta de correo: Tantalus envía con esa cuenta y la contraseña se queda en Faustus. Los avisos llegan a la propia cuenta salvo que indiques destinatarios. Si no, servidor, puerto, usuario, contraseña de aplicación, remitente y destinatario (Gmail pide contraseña de aplicación). El ajuste **Enviar con** elige `auto`, `faustus` o `smtp`. |
