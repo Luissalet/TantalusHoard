@@ -197,3 +197,22 @@ def test_search_http_202_is_reported_as_bot_check():
     fr = FetchResult(url="x", status=202, ok=True, text="<html><body>please wait</body></html>")
     hits, errors = WebSearch(FakeFetcher({"duckduckgo": fr, "bing.com": load("bing_rtx.html")})).search("q")
     assert errors == {"ddg": "blocked: bot check (http 202)"} and len(hits) == 10
+
+
+GNEWS = """<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>x</title>
+<item><title>ASUS ProArt P16 llegará el 8 de octubre con RTX Spark N1X - Xataka</title>
+<link>https://news.google.com/rss/articles/CBMiABC?oc=5</link><pubDate>Mon, 28 Sep 2026 07:00:00 GMT</pubDate>
+<description>&lt;a href="x"&gt;ASUS ProArt P16 llegará el 8 de octubre con RTX Spark N1X&lt;/a&gt;</description>
+<source url="https://www.xataka.com">Xataka</source></item>
+<item><title>MSI EdgeMesa N AI+ con RTX Spark N1X, 128 GB</title>
+<link>http://www.bing.com/news/apiclick.aspx?ref=FexRss&amp;aid=&amp;tid=1&amp;url=https%3a%2f%2fwww.msi.com%2fnews%2fedgemesa&amp;c=1</link>
+<pubDate>Tue, 29 Sep 2026 07:00:00 GMT</pubDate><description>Mini PC with 128 GB of unified memory</description></item>
+</channel></rss>"""
+
+
+def test_parse_news_rss_keeps_publisher_and_decodes_bing_links():
+    from tantalus_hoard.search import parse_news_rss
+    g = parse_news_rss(GNEWS, "gnews")
+    assert len(g) == 2 and g[0].snippet.endswith("[https://www.xataka.com]") and g[0].published.startswith("Mon, 28 Sep")
+    b = parse_news_rss(GNEWS, "bingnews")
+    assert b[1].url == "https://www.msi.com/news/edgemesa" and b[1].snippet == "Mini PC with 128 GB of unified memory"

@@ -250,6 +250,7 @@ class WebSearchArgs(BaseModel):
     query: str = Field(..., min_length=2, max_length=300)
     limit: int = Field(10, ge=1, le=30)
     freshness_days: Optional[int] = Field(None, ge=1, le=365)
+    news: bool = Field(False, description="Search news (Google News and Bing News RSS) instead of the web.")
 
 
 class SecondhandSearchArgs(BaseModel):
@@ -543,7 +544,8 @@ def run_discovery(svc: Services, a: WatcherIdArgs) -> dict[str, Any]:
 
 
 def run_web_search(svc: Services, a: WebSearchArgs) -> dict[str, Any]:
-    hits, errors = svc.websearch.search(a.query, a.limit, freshness_days=a.freshness_days)
+    engines = ["gnews", "bingnews"] if a.news else None
+    hits, errors = svc.websearch.search(a.query, a.limit, freshness_days=a.freshness_days, engines=engines)
     return cap_result({"hits": [asdict(h) for h in hits], "errors": errors, "note": UNTRUSTED_NOTE})
 
 
@@ -702,7 +704,7 @@ TOOLS: list[Tool] = [
     Tool("candidate_reject", "Reject a proposed URL. Rechazar propuesta.", CandidateIdArgs, _ann(False), run_candidate_reject),
     Tool("discovery_run", "Search the web for new product / retailer URLs for an availability watcher. Descubrir nuevas URLs.",
          WatcherIdArgs, _ann(False, idempotent=False, open_world=True), run_discovery),
-    Tool("web_search", "Web search (DuckDuckGo, Bing; SearXNG or Brave when configured) with merged ranking. Buscar en la web.",
+    Tool("web_search", "Web or news search (DuckDuckGo, Bing, Google News, Bing News; SearXNG, Brave if set). Buscar en la web o noticias.",
          WebSearchArgs, _ann(True, open_world=True), run_web_search),
     Tool("secondhand_search",
          "One-off Wallapop (or Facebook Marketplace) search scored by a pack, near a town, without saving. Buscar de segunda mano.\n"

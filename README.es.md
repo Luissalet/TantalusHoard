@@ -14,7 +14,7 @@ Todo corre en tu ordenador: la base SQLite, el planificador y el perfil del nave
 |---|---|---|
 | **availability** | Fichas de producto y búsquedas de tiendas. En cada comprobación guarda el estado de stock (en stock, recogida en tienda, reserva abierta, reposición anunciada, agotado, solo vendedores externos, desconocido), el precio, el vendedor y las evidencias. | ETB del 30.º aniversario de Pokémon en GAME, El Corte Inglés y xtralife; NVIDIA DGX Spark por debajo de 4.800 € |
 | **secondhand** | Wallapop (API pública de búsqueda) y Facebook Marketplace (tu propia sesión en el perfil del navegador). Cada anuncio se puntúa con un pack de señales explicables. | Libros gratis en lote cerca de Madrid (el antiguo Radar de Libros); ETB precintada a no más de 1,3 × PVP |
-| **information** | Páginas oficiales (diff del texto legible), feeds RSS/Atom y búsquedas web. Solo avisa de novedad material y marca cada una como confirmada, filtración o estimación. | Equipos RTX Spark / N1X de 128 GB en Europa |
+| **information** | Páginas oficiales (diff del texto legible), feeds RSS/Atom y búsquedas de noticias y web (por defecto, los RSS de Google News y Bing News). Solo avisa de novedad material y marca cada una como confirmada, filtración o estimación. | Equipos RTX Spark / N1X de 128 GB en Europa |
 
 ## Cómo decide una comprobación
 
@@ -65,10 +65,10 @@ Las credenciales van en `.env` (`TANTALUS_TELEGRAM_TOKEN=…`) o se guardan desd
 
 ## Vigilantes preparados
 
-En el primer arranque se instalan cinco vigilantes:
+En el primer arranque se instalan seis vigilantes:
 
 - ETB y Booster Bundle del 30.º aniversario de Pokémon: búsquedas de GAME, El Corte Inglés y xtralife, más consultas de descubrimiento.
-- DGX Spark en España: marketplace de NVIDIA y API de productos de NVIDIA, con umbral de 4.800 €.
+- DGX Spark en España: marketplace de NVIDIA y API de productos de NVIDIA, con umbral de 4.800 €, más un vigilante de noticias de venta en España, porque el marketplace bloquea la lectura automática.
 - RTX Spark / N1X de 128 GB en Europa: vigilante de información.
 - El radar de libros gratis.
 - Un vigilante de ETB precintada de segunda mano, desactivado.
@@ -113,7 +113,7 @@ El texto de las páginas, los títulos y los fragmentos son datos de terceros. L
 - **Sitios bloqueados.** El 30-09-2026 bloqueaban la lectura automática en los dos niveles Carrefour, PcComponentes, Fnac, Toys R Us, Cardmarket, eBay y las páginas del marketplace de NVIDIA. Esos objetivos quedan en «necesita tu ayuda» y se reintentan cada tres horas.
 - **Stock por tienda.** Solo se lee cuando la tienda lo muestra en la página. Si no, la lista de tiendas del vigilante es una preferencia.
 - **DGX Spark.** La API de productos de NVIDIA no la incluye hoy, así que ese objetivo sale «desconocido» hasta que la incluya.
-- **DuckDuckGo.** Su versión HTML limita tras pocas consultas. El descubrimiento corre como mucho cada pocas horas y tira de Bing. SearXNG o una clave de Brave añaden motores.
+- **Búsqueda web.** La búsqueda web sin clave es poco fiable desde un programa: DuckDuckGo pide una comprobación anti-bot tras pocas consultas y Bing degrada las consultas largas. Las búsquedas de noticias usan los RSS de Google News y Bing News, que funcionan bien. Para productos, lo fiable para descubrir SKUs nuevos es vigilar las búsquedas de las propias tiendas. SearXNG o una clave de Brave añaden motores web de verdad.
 - **Facebook.** Sus condiciones prohíben el acceso automatizado. Marketplace está desactivado por defecto y usa tu propia sesión en el perfil del navegador de la app.
 
 ## Tests

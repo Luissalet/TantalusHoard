@@ -232,7 +232,7 @@ def judge_rules(findings: list[InfoFinding], watcher: dict[str, Any]) -> list[In
     for f in findings:
         text = _finding_text(f)
         folded = fold(text)
-        host = host_of(f.url)
+        host = host_of(f.publisher or f.url)
         bare = host[4:] if host.startswith("www.") else host
         if official:
             is_official = any(bare == d or bare.endswith("." + d) for d in official)
@@ -450,7 +450,8 @@ class InfoSentry:
             days = int(info["freshness_days"]) if info.get("freshness_days") else 30
         except (TypeError, ValueError):
             days = 30
-        hits, errors = self.search.search(str(row.get("value", "")), 10, freshness_days=days)
+        engines = info.get("engines") or ["gnews", "bingnews", "bing"]
+        hits, errors = self.search.search(str(row.get("value", "")), 20, freshness_days=days, engines=list(engines))
         if not hits:
             update["last_error"] = "; ".join(f"{k}: {v}" for k, v in errors.items())[:300] or "no results"
             return []
@@ -464,9 +465,14 @@ class InfoSentry:
         for hit, key in zip(hits, keys):
             if key in seen_set:
                 continue
-            level = classify_host(host_of(hit.url))[0]
-            out.append(InfoFinding(url=hit.url, title=hit.title or hit.url, snippet=_clip(hit.snippet, 300), kind="search_hit",
-                                   published=hit.published, content_hash=_sha(key)[:32], source_level=level))
+            publisher = ""
+            m = re.search(r"\[(https?://[^\]\s]+)\]\s*$", hit.snippet or "")
+            snippet = hit.snippet or ""
+            if m:
+                publisher, snippet = m.group(1), snippet[: m.start()].strip()
+            level = classify_host(host_of(publisher or hit.url))[0]
+            out.append(InfoFinding(url=hit.url, title=hit.title or hit.url, snippet=_clip(snippet, 300), kind="search_hit",
+                                   published=hit.published, content_hash=_sha(key)[:32], source_level=level, publisher=publisher))
         return out[:MAX_FIRST_SEARCH_FINDINGS] if first else out
 
 

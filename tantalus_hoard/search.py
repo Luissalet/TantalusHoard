@@ -12,8 +12,9 @@ import base64
 import ipaddress
 import logging
 import re
+import time
 from typing import Any, Callable, Optional
-from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup
 
@@ -22,8 +23,9 @@ from .model import FetchResult, SearchHit
 log = logging.getLogger("tantalus.search")
 
 RRF_K = 60
-DEFAULT_ENGINES = ("searxng", "ddg", "bing", "brave")
-SEARCH_MIN_INTERVAL_S = {"ddg": 8.0, "bing": 3.0}  # DuckDuckGo answers 202 (bot check) to bursts
+DEFAULT_ENGINES = ("searxng", "ddg", "bing", "brave", "gnews", "bingnews")
+NEWS_ENGINES = ("gnews", "bingnews")
+SEARCH_MIN_INTERVAL_S = {"ddg": 8.0, "bing": 3.0, "gnews": 3.0, "bingnews": 3.0}  # DuckDuckGo answers 202 (bot check) to bursts
 
 _TRACKING_PARAMS = {"fbclid", "gclid", "dclid", "msclkid", "mc_cid", "mc_eid", "igshid", "yclid", "_ga", "ref_src", "spm"}
 _BLOCKED_HOST_SUFFIXES = (".local", ".localdomain", ".internal", ".lan", ".home.arpa")
@@ -206,6 +208,60 @@ def _searxng_range(days: Optional[int]) -> str:
 
 
 # ----------------------------------------------------------------------------- fusion
+def _rss_ts(value: Optional[str]) -> Optional[float]:
+    if not value:
+        return None
+    try:
+        from email.utils import parsedate_to_datetime
+        return parsedate_to_datetime(value).timestamp()
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
+def _bing_news_target(href: str) -> str:
+    """Bing News RSS links are apiclick.aspx redirects; the article is in the ``url`` parameter."""
+    try:
+        parts = urlsplit(href)
+        if "bing.com" in (parts.hostname or "") and "apiclick" in parts.path:
+            target = parse_qs(parts.query).get("url", [""])[0]
+            if target.startswith("http"):
+                return target
+    except ValueError:
+        pass
+    return href
+
+
+def parse_news_rss(xml_text: str, engine: str) -> list[SearchHit]:
+    """Items of a news RSS feed (Google News, Bing News). Google News titles end with " - <publisher>"; its
+    <source url=...> element names the publisher's site (the article link itself is a news.google.com redirect)."""
+    import xml.etree.ElementTree as ET
+
+    try:
+        root = ET.fromstring(xml_text.encode("utf-8") if isinstance(xml_text, str) else xml_text)
+    except ET.ParseError:
+        return []
+    hits: list[SearchHit] = []
+    for rank, item in enumerate(root.iter("item"), start=1):
+        title = (item.findtext("title") or "").strip()
+        link = (item.findtext("link") or "").strip()
+        if not title or not link:
+            continue
+        if engine == "bingnews":
+            link = _bing_news_target(link)
+        source = item.find("source")
+        publisher = (source.text or "").strip() if source is not None and source.text else ""
+        publisher_url = source.get("url", "") if source is not None else ""
+        desc = BeautifulSoup(item.findtext("description") or "", "html.parser").get_text(" ", strip=True)
+        snippet = desc if desc and desc != title else ""
+        if publisher and not snippet:
+            snippet = publisher
+        hit = SearchHit(url=link, title=title, snippet=snippet[:400], engine=engine, rank=rank, published=item.findtext("pubDate"))
+        if publisher_url:
+            hit.snippet = (hit.snippet + f" [{publisher_url}]").strip()
+        hits.append(hit)
+    return hits
+
+
 def rrf_merge(lists: list[list[SearchHit]], *, k: int = RRF_K) -> list[SearchHit]:
     """Reciprocal Rank Fusion over normalised URLs. The best-ranked copy supplies title/snippet; engines are joined."""
     scores: dict[str, float] = {}
@@ -302,6 +358,27 @@ class WebSearch:
                                 min_interval_s=SEARCH_MIN_INTERVAL_S.get(engine, 3.0), **kwargs)
 
     # -- engines
+    def _news_rss(self, url: str, params: dict[str, Any], engine: str, limit: int,
+                  freshness_days: Optional[int]) -> tuple[list[SearchHit], str]:
+        fr = self._get(engine, url, params)
+        if fr is None or not fr.ok:
+            return [], (fr.block_reason or fr.error or f"http {fr.status}") if fr is not None else "no answer"
+        hits = parse_news_rss(fr.text, engine)
+        if freshness_days:
+            cutoff = time.time() - freshness_days * 86400
+            hits = [h for h in hits if h.published is None or _rss_ts(h.published) is None or _rss_ts(h.published) >= cutoff]
+        return hits[:limit], "" if hits else "no results"
+
+    def _gnews(self, query: str, limit: int, freshness_days: Optional[int]) -> tuple[list[SearchHit], str]:
+        """Google News RSS: keyless, stable, and relevant for change intelligence (launches, prices, dates)."""
+        q = query + (f" when:{freshness_days}d" if freshness_days else "")
+        return self._news_rss("https://news.google.com/rss/search", {"q": q, "hl": "es", "gl": "ES", "ceid": "ES:es"},
+                              "gnews", limit, freshness_days)
+
+    def _bingnews(self, query: str, limit: int, freshness_days: Optional[int]) -> tuple[list[SearchHit], str]:
+        return self._news_rss("https://www.bing.com/news/search", {"q": query, "format": "rss", "setlang": "es"}, "bingnews",
+                              limit, freshness_days)
+
     def _ddg(self, query: str, limit: int, freshness_days: Optional[int]) -> tuple[list[SearchHit], str]:
         params = {"q": query, "kl": "es-es"}
         if _ddg_df(freshness_days):

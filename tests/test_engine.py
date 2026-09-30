@@ -227,11 +227,11 @@ def test_dashboard_news_and_visit(svc):
 
 def test_config_roundtrip_and_presets(svc):
     created = tool(svc, "presets_install")["created"]
-    assert len(created) == 5
+    assert len(created) == 6
     data = tool(svc, "config_export")
     assert {w["mode"] for w in data["watchers"]} == {"availability", "secondhand", "information"}
     again = tool(svc, "config_import", data=data)
-    assert again["created"] == [] and len(again["updated"]) == 5
+    assert again["created"] == [] and len(again["updated"]) == 6
     assert tool(svc, "presets_install")["created"] == []
 
 

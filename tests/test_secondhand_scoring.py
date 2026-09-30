@@ -413,3 +413,18 @@ def test_score_rules_is_deterministic_and_does_not_mutate_the_pack():
     b = sealed("ETB precintada", price=50.0)
     assert a == b and SEALED == before
     assert isinstance(a, ListingScore)
+
+
+def test_books_pack_rejects_video_games_and_needs_a_book_word():
+    from tantalus_hoard.model import RawListing
+    from tantalus_hoard.secondhand import get_pack, score_listing
+    pack = get_pack("books_bulk")
+    game = RawListing(source="wallapop", url="u1", title="Grand Theft Auto V (GTA 5) - PS4", price=10, location_text="Móstoles",
+                      description="Videojuego para PlayStation 4. Caja sin portada ni libro. Se hacen lotes con otros productos")
+    assert not score_listing(game, pack, {"origin_location": "Móstoles"}).relevant
+    sofa = RawListing(source="wallapop", url="u2", title="Sofá gratis por mudanza", price=0, location_text="Móstoles",
+                      description="Lo regalo, hay que recogerlo")
+    assert not score_listing(sofa, pack, {"origin_location": "Móstoles"}).relevant
+    library = RawListing(source="wallapop", url="u3", title="Regalo biblioteca completa", price=0, location_text="Móstoles",
+                         description="Vaciado de piso, cientos de libros")
+    assert score_listing(library, pack, {"origin_location": "Móstoles"}).relevant

@@ -508,6 +508,9 @@ class Engine:
             findings = self.info.judge(findings, watcher)
             stats["findings"] += len(findings)
             for f in findings:
+                if f.verdict == "irrelevant":
+                    stats["irrelevant"] = stats.get("irrelevant", 0) + 1
+                    continue
                 item = self.store.insert_info_item(watcher_id, source["id"], f)
                 if item is None:
                     continue

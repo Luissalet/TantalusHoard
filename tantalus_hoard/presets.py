@@ -76,6 +76,25 @@ PRESETS: list[dict[str, Any]] = [
         ],
     },
     {
+        "id": "dgx-spark-es-news",
+        "name": "DGX Spark — venta en España (noticias)",
+        "mode": MODE_INFORMATION,
+        "interval_min": 180,
+        "notes": "Complementa al vigilante de disponibilidad: el marketplace de NVIDIA bloquea la lectura automática, así que se "
+                 "vigilan las noticias de venta, precio y distribuidores en España.",
+        "config": {
+            "sources": [
+                {"kind": "search", "value": '"DGX Spark" España precio', "label": "España precio"},
+                {"kind": "search", "value": '"DGX Spark" comprar disponible', "label": "Disponible"},
+            ],
+            "info": {"must_terms": ["dgx spark"], "boost_terms": ["españa", "precio", "euros", "€", "disponible", "comprar", "stock",
+                                                                "reserva", "tienda"],
+                     "exclude_terms": [], "freshness_days": 14,
+                     "official_domains": ["nvidia.com", "asus.com", "dell.com", "hp.com", "lenovo.com", "msi.com", "gigabyte.com", "acer.com"]},
+        },
+        "targets": [],
+    },
+    {
         "id": "rtx-spark-128gb-eu",
         "name": "RTX Spark / N1X 128 GB en Europa",
         "mode": MODE_INFORMATION,
@@ -84,11 +103,11 @@ PRESETS: list[dict[str, Any]] = [
                  "Separar hechos de filtraciones.",
         "config": {
             "sources": [
-                {"kind": "search", "value": '"RTX Spark" 128GB Europe OEM', "label": "RTX Spark 128GB Europa"},
-                {"kind": "search", "value": '"N1X" 128GB workstation Europe', "label": "N1X 128GB"},
-                {"kind": "search", "value": 'site:asus.com "RTX Spark" 128GB', "label": "ASUS"},
-                {"kind": "search", "value": 'site:lenovo.com "RTX Spark" 128GB', "label": "Lenovo"},
-                {"kind": "search", "value": '"RTX Spark" 128GB España precio reserva', "label": "España"},
+                {"kind": "search", "value": '"RTX Spark" 128GB', "label": "RTX Spark 128 GB"},
+                {"kind": "search", "value": 'N1X 128GB', "label": "N1X 128 GB"},
+                {"kind": "search", "value": '"RTX Spark" España precio', "label": "España"},
+                {"kind": "search", "value": '"RTX Spark" Europe price preorder', "label": "Europa"},
+                {"kind": "feed", "value": "https://nvidianews.nvidia.com/releases.xml", "label": "NVIDIA Newsroom"},
             ],
             "info": {"must_terms": ["rtx spark", "n1x"], "boost_terms": ["128gb", "128 gb", "europe", "europa", "españa", "spain",
                                                                          "preorder", "reserva", "precio", "price", "egpu", "benchmark"],

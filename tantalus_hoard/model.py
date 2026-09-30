@@ -215,3 +215,4 @@ class InfoFinding:
     reason: str = ""
     source_level: int = 5
     method: str = "rules"
+    publisher: str = ""             # the publisher's site when the URL is a news-aggregator redirect

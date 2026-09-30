@@ -14,7 +14,7 @@ Everything runs on your computer: the SQLite store, the scheduler and the browse
 |---|---|---|
 | **availability** | Product pages and retailer search pages. It records a stock state (in stock, local pickup, pre-order, restock scheduled, sold out, marketplace only, unknown), price, seller and evidence on every check. | Pokémon TCG 30th anniversary Elite Trainer Box at GAME, El Corte Inglés and xtralife; NVIDIA DGX Spark under 4,800 € |
 | **secondhand** | Wallapop (public search API) and Facebook Marketplace (your own logged-in browser profile). Listings are scored by a pack of explainable signals. | Free books in bulk near Madrid (the former Radar de Libros); sealed ETB at no more than 1.3 × MSRP |
-| **information** | Official pages (readable-text diff), RSS/Atom feeds and web searches. It reports only material news and marks each item as confirmed, leak or estimate. | RTX Spark / N1X 128 GB systems in Europe |
+| **information** | Official pages (readable-text diff), RSS/Atom feeds, and news and web searches (Google News and Bing News RSS by default). It reports only material news and marks each item as confirmed, leak or estimate. | RTX Spark / N1X 128 GB systems in Europe |
 
 ## How a check decides
 
@@ -54,10 +54,10 @@ Secrets live in `.env` (`TANTALUS_TELEGRAM_TOKEN=…`) or are saved write-only f
 
 ## Ready-made watchers
 
-The first start installs five watchers:
+The first start installs six watchers:
 
 - Pokémon TCG 30th anniversary ETB and Booster Bundle: search pages at GAME, El Corte Inglés and xtralife, plus discovery queries.
-- DGX Spark in Spain: the NVIDIA marketplace and the NVIDIA product API, with a 4,800 € threshold.
+- DGX Spark in Spain: the NVIDIA marketplace and the NVIDIA product API, with a 4,800 € threshold, plus a news watcher for Spanish sale announcements, because the marketplace blocks automated reads.
 - RTX Spark / N1X 128 GB in Europe: an information watcher.
 - The free-books radar.
 - A disabled sealed-ETB second-hand watcher.
@@ -89,7 +89,7 @@ Page text, titles and snippets are third-party data. Tool results say so, and th
 - **Blocked sites.** On 30-09-2026 these blocked automated reads in both tiers: Carrefour, PcComponentes, Fnac, Toys R Us, Cardmarket, eBay and the NVIDIA marketplace pages. Such targets stay in "needs human" and are retried every three hours.
 - **Local stock.** Stock at a specific store is only read when the retailer shows it on the page. The store list of a watcher is otherwise a preference.
 - **DGX Spark.** The NVIDIA product API does not list DGX Spark today, so that target stays "unknown" until it does.
-- **DuckDuckGo.** Its HTML endpoint rate-limits after a few queries. Discovery runs at most every few hours and falls back to Bing, and a SearXNG instance or a Brave key adds engines.
+- **Web search.** Keyless web search is unreliable from a script: DuckDuckGo's HTML endpoint answers a bot check after a few queries and Bing degrades long queries. News searches use the Google News and Bing News RSS feeds, which work well. For products, watching the retailers' own search pages is the dependable way to discover new SKUs. A SearXNG instance or a Brave key adds proper web engines.
 - **Facebook.** Facebook's terms forbid automated access. The Marketplace source is off by default and uses your own session in the app's browser profile.
 
 ## Tests

@@ -357,7 +357,7 @@ Annotations: openWorldHint.
 
 ## `web_search`
 
-Web search (DuckDuckGo, Bing; SearXNG or Brave when configured) with merged ranking. Buscar en la web.
+Web or news search (DuckDuckGo, Bing, Google News, Bing News; SearXNG, Brave if set). Buscar en la web o noticias.
 
 Annotations: readOnlyHint, idempotentHint, openWorldHint.
 
@@ -366,6 +366,7 @@ Annotations: readOnlyHint, idempotentHint, openWorldHint.
 | `query` (string) | yes |  |
 | `limit` (integer) | no |  |
 | `freshness_days` (integer/null) | no |  |
+| `news` (boolean) | no | Search news (Google News and Bing News RSS) instead of the web. |
 
 ## `secondhand_search`
 
