@@ -25,7 +25,7 @@ PRESETS: list[dict[str, Any]] = [
         "discovery_interval_h": 12,
         "notes": "Stock o reposición confirmada en tiendas de la zona. Sin reventa.",
         "config": {
-            "product": {"terms": ["pokemon", "30", "aniversario"], "types": ["Elite Trainer Box", "ETB", "Booster Bundle"],
+            "product": {"terms": ["pokemon", "30", "aniversario"], "must": ["pokemon"], "types": ["Elite Trainer Box", "ETB", "Booster Bundle"],
                         "exclude": ["funda", "fundas", "protector", "carpeta", "sleeves", "tapete"], "language": "es"},
             "region": "ES-MD",
             "stores": POKEMON_STORES,

@@ -233,3 +233,13 @@ def test_config_roundtrip_and_presets(svc):
     again = tool(svc, "config_import", data=data)
     assert again["created"] == [] and len(again["updated"]) == 5
     assert tool(svc, "presets_install")["created"] == []
+
+
+def test_offer_matching_is_whole_word_and_strict_for_short_term_lists():
+    from tantalus_hoard.engine import offer_matches
+    from tantalus_hoard.model import Offer
+    terms, must = ["pokemon", "30", "aniversario"], ["pokemon"]
+    assert offer_matches(Offer(title="Caja de entrenador Elite Pokémon 30 Aniversario (Castellano)"), terms, must, [])
+    assert not offer_matches(Offer(title="Estatua Albedo 10º Aniversario Escala 1:30"), terms, must, [])
+    assert not offer_matches(Offer(title="Pokémon Pokopia 2030 edición aniversario"), terms, must, [])
+    assert not offer_matches(Offer(title="Fundas Pokémon 30 Aniversario"), terms, must, ["fundas"])

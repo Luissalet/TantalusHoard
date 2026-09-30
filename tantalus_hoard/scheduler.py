@@ -1,9 +1,11 @@
-"""Background scheduler: one worker thread that runs what is due, one job at a time (politeness first).
+"""Background scheduler: two worker lanes, each running one job at a time.
 
-Order of each tick: pending revalidations (they are time-sensitive) -> due product targets -> due second-hand
-and information watchers -> due discovery passes. A job that raises is logged and never stops the loop.
-Manual "check now" requests from the UI or the assistant go through the same queue, so two checks of the same
-host never overlap.
+- ``checks`` lane: revalidations and product-target checks (short, time-sensitive).
+- ``sweeps`` lane: second-hand sweeps, information sweeps and discovery (long: many queries, polite pauses).
+
+A long Wallapop sweep therefore never delays a restock check. Per-host politeness lives in the fetcher (one
+request at a time per host, minimum interval), so the two lanes can run side by side safely. A job that raises is
+logged and never stops a lane. Manual "check now" requests go through the same queues.
 """
 
 from __future__ import annotations
@@ -33,6 +35,13 @@ class Job:
     error: str = ""
 
 
+LANES = ("checks", "sweeps")
+
+
+def lane_of(kind: str) -> str:
+    return "checks" if kind in ("check", "revalidate") else "sweeps"
+
+
 class Scheduler:
     def __init__(self, engine: Any, store: Any, *, clock: Callable[[], float] = time.time, enabled: bool = True,
                  paused: Callable[[], bool] = lambda: False):
@@ -41,32 +50,44 @@ class Scheduler:
         self.clock = clock
         self.enabled = enabled
         self.paused = paused
-        self._queue: "queue.Queue[Job]" = queue.Queue()
+        self._queues: dict[str, "queue.Queue[Job]"] = {lane: queue.Queue() for lane in LANES}
         self._pending: set[tuple[str, str]] = set()
         self._lock = threading.Lock()
         self._stop = threading.Event()
-        self._thread: Optional[threading.Thread] = None
-        self.current: Optional[Job] = None
+        self._threads: dict[str, threading.Thread] = {}
+        self._current: dict[str, Optional[Job]] = {lane: None for lane in LANES}
         self.last_tick_ts: Optional[float] = None
         self.jobs_done = 0
 
+    @property
+    def current(self) -> Optional[Job]:
+        return self._current["checks"] or self._current["sweeps"]
+
+    def _alive(self) -> bool:
+        return any(t.is_alive() for t in self._threads.values())
+
     # ------------------------------------------------------------------ lifecycle
     def start(self) -> None:
-        if self._thread and self._thread.is_alive():
+        if self._alive():
             return
         self._stop.clear()
-        self._thread = threading.Thread(target=self._loop, name="tantalus-scheduler", daemon=True)
-        self._thread.start()
+        for lane in LANES:
+            thread = threading.Thread(target=self._loop, args=(lane,), name=f"tantalus-{lane}", daemon=True)
+            self._threads[lane] = thread
+            thread.start()
 
     def stop(self, timeout: float = 5.0) -> None:
         self._stop.set()
-        if self._thread:
-            self._thread.join(timeout)
+        for thread in self._threads.values():
+            thread.join(timeout)
 
     def status(self) -> dict[str, Any]:
+        def view(job: Optional[Job]) -> Optional[dict[str, str]]:
+            return {"kind": job.kind, "ref": job.ref, "reason": job.reason} if job else None
         cur = self.current
-        return {"enabled": self.enabled, "running": bool(self._thread and self._thread.is_alive()), "paused": bool(self.paused()),
-                "queue": self._queue.qsize(), "current": {"kind": cur.kind, "ref": cur.ref, "reason": cur.reason} if cur else None,
+        return {"enabled": self.enabled, "running": self._alive(), "paused": bool(self.paused()),
+                "queue": sum(q.qsize() for q in self._queues.values()), "current": view(cur),
+                "lanes": {lane: {"queue": self._queues[lane].qsize(), "current": view(self._current[lane])} for lane in LANES},
                 "last_tick_ts": self.last_tick_ts, "jobs_done": self.jobs_done}
 
     # ------------------------------------------------------------------ queue
@@ -77,12 +98,12 @@ class Scheduler:
                 return None
             self._pending.add(key)
         job = Job(kind, ref, reason)
-        self._queue.put(job)
+        self._queues[lane_of(kind)].put(job)
         return job
 
     def run_now(self, kind: str, ref: str, timeout: float = 240.0) -> Any:
         """Queue a job and wait for it (used by 'check now'). Without a running loop, run inline."""
-        if not (self._thread and self._thread.is_alive()):
+        if not self._alive():
             return self._execute(Job(kind, ref, "inline"))
         job = self.submit(kind, ref)
         if job is None:
@@ -108,15 +129,17 @@ class Scheduler:
         raise ValueError(f"unknown job kind {job.kind}")
 
     # ------------------------------------------------------------------ loop
-    def _loop(self) -> None:
+    def _loop(self, lane: str) -> None:
         while not self._stop.is_set():
             try:
-                job = self._queue.get(timeout=1.0)
+                job = self._queues[lane].get(timeout=1.0)
             except queue.Empty:
                 job = None
             if job is not None:
-                self._run(job)
+                self._run(job, lane)
                 continue
+            if lane != "checks":
+                continue  # one lane owns the tick
             now = self.clock()
             if self.last_tick_ts is None or now - self.last_tick_ts >= TICK_S:
                 self.last_tick_ts = now
@@ -126,8 +149,8 @@ class Scheduler:
                     except Exception:  # noqa: BLE001
                         log.exception("scheduler tick failed")
 
-    def _run(self, job: Job) -> None:
-        self.current = job
+    def _run(self, job: Job, lane: str) -> None:
+        self._current[lane] = job
         try:
             job.result = self._execute(job)
         except Exception as error:  # noqa: BLE001
@@ -136,7 +159,7 @@ class Scheduler:
         finally:
             with self._lock:
                 self._pending.discard((job.kind, job.ref))
-            self.current = None
+            self._current[lane] = None
             self.jobs_done += 1
             job.done.set()
 

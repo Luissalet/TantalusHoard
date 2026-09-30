@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 import time
 import unicodedata
 from typing import Any, Callable, Optional
@@ -38,18 +39,27 @@ def fold(text: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", (text or "").lower()) if unicodedata.category(c) != "Mn")
 
 
+def _has_term(term: str, text: str) -> bool:
+    """Whole-word match on folded text ("30" must not match "1:30" or "2030")."""
+    t = fold(term).strip()
+    return bool(t) and re.search(r"(?<![a-z0-9])" + re.escape(t) + r"(?![a-z0-9])", text) is not None
+
+
 def offer_matches(offer: Offer, terms: list[str], must: list[str], exclude: list[str]) -> bool:
-    title = fold(" ".join(filter(None, (offer.title, offer.url))))
+    """Does a product tile belong to the watcher? Every ``must`` term and, with three terms or fewer, every product
+    term; with more terms, at least 60 % of them. Any ``exclude`` term rejects the tile."""
+    title = fold(" ".join(filter(None, (offer.title, (offer.url or "").replace("-", " ").replace("_", " ")))))
     if not title:
         return False
-    if any(fold(x) in title for x in exclude):
+    if any(_has_term(x, title) for x in exclude):
         return False
-    if must and not all(fold(m) in title for m in must):
+    if must and not all(_has_term(m, title) for m in must):
         return False
     if not terms:
         return True
-    hits = sum(1 for t in terms if fold(t) in title)
-    return hits >= max(1, int(len(terms) * 0.6 + 0.5))
+    hits = sum(1 for t in terms if _has_term(t, title))
+    needed = len(terms) if len(terms) <= 3 else max(1, int(len(terms) * 0.6 + 0.5))
+    return hits >= needed
 
 
 class Engine:
