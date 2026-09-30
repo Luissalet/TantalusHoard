@@ -1,0 +1,15 @@
+{
+ "fnac_datadome.html": {
+  "content-type": "text/html;charset=utf-8",
+  "x-datadome": "protected"
+ },
+ "ebay_akamai_error.html": {
+  "server": "AkamaiGHost",
+  "content-type": "text/html",
+  "set-cookie": "bm_s=YAAQl9c7F8JnNO+gAQAAjvVv8gbtJg5nBtZT1LEAX/P6AIfvFyVqoeD\u2026"
+ },
+ "nvidia_marketplace_akamai_denied.html": {
+  "content-type": "text/html",
+  "set-cookie": "c_code=ES; Path=/; Secure, bm_s=YAAQXtXdWMPdR9ugAQAAu/Zv8gY5\u2026"
+ }
+}

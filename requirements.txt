@@ -1,0 +1,12 @@
+# Versions verified in the build environment (Python 3.11+ required).
+fastapi==0.142.2
+uvicorn==0.46.0
+pydantic==2.13.3
+starlette==1.0.0
+httpx==0.28.1
+mcp==1.27.0
+beautifulsoup4==4.14.3
+playwright==1.56.0
+winotify==1.1.0; sys_platform == "win32"
+pytest==9.1.1
+pytest-asyncio==1.4.0
