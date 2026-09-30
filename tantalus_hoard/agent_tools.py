@@ -302,6 +302,8 @@ def _watcher_view(svc: Services, w: dict[str, Any], *, detail: bool = False) -> 
     if w["mode"] == MODE_AVAILABILITY:
         ts = svc.store.targets(watcher_id=w["id"])
         out["targets"] = [svc._target_card(t) for t in ts] if detail else len(ts)
+        pending = [t["next_check_ts"] for t in ts if t.get("next_check_ts") and t["status"] != "paused"]
+        out["next_run_ts"] = min(pending) if pending and w["enabled"] else None
     if w["mode"] == MODE_INFORMATION and detail:
         out["info_sources"] = svc.store.info_sources(w["id"])
     if detail:

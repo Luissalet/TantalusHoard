@@ -225,15 +225,18 @@ class Engine:
         if state != UNKNOWN:
             extra["last_known_state"] = state
         extra["checked_once"] = True
+        self.store.update_watcher(watcher["id"], last_run_ts=now)
         extra["page_kind"] = ex.page_kind
         min_price = target.get("min_price")
         if offer.price is not None and state in BUYABLE and (min_price is None or offer.price < float(min_price)):
             min_price = offer.price
+        no_match = is_list and not matched  # a search page where nothing matches: do not keep the old tile's price or title
         self.store.update_target(
             target["id"], status="active", last_check_ts=now, last_state=state,
-            last_price=offer.price if offer.price is not None else target.get("last_price"),
+            last_price=None if no_match else (offer.price if offer.price is not None else target.get("last_price")),
             last_currency=offer.currency or target.get("last_currency") or "", last_confidence=conf.score,
-            last_title=(offer.title or target.get("last_title") or "")[:200], last_image=offer.image or target.get("last_image") or "",
+            last_title="" if no_match else (offer.title or target.get("last_title") or "")[:200],
+            last_image="" if no_match else (offer.image or target.get("last_image") or ""),
             last_error="", fail_count=0, min_price=min_price, extra=extra,
             next_check_ts=self._next_check(target, watcher) if not revalidation else target.get("next_check_ts"))
         return {"target_id": target["id"], "ok": True, "state": state, "price": offer.price, "currency": offer.currency,
