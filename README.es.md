@@ -1,5 +1,7 @@
 # Tantalus's Hoard
 
+[![CI](https://github.com/Luissalet/TantalusHoard/actions/workflows/ci.yml/badge.svg)](https://github.com/Luissalet/TantalusHoard/actions/workflows/ci.yml)
+
 [English](README.md)
 
 <img src="app-icon.png" alt="" width="96" align="right">
