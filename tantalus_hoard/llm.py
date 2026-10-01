@@ -80,15 +80,23 @@ class LLM:
         if not ok or not self._take_budget():
             return None
         self.calls += 1
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         try:
-            result = self.link.chat(
-                [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                response_format={"type": "json_object"}, effort=effort, max_tokens=max_tokens, temperature=temperature,
-            )
+            result = self.link.chat(messages, response_format={"type": "json_object"}, effort=effort, max_tokens=max_tokens,
+                                    temperature=temperature)
         except Exception as error:  # noqa: BLE001 — the model is optional
-            self.failures += 1
-            log.info("model call failed: %s", error)
-            return None
+            if "grammar" not in str(error).lower():
+                self.failures += 1
+                log.info("model call failed: %s", error)
+                return None
+            # llama.cpp can fail to build or follow the JSON grammar for some models ("Unexpected empty grammar stack"):
+            # ask again without the constraint; the prompt already asks for JSON and the parser tolerates fences.
+            try:
+                result = self.link.chat(messages, effort=effort, max_tokens=max_tokens, temperature=temperature)
+            except Exception as retry_error:  # noqa: BLE001
+                self.failures += 1
+                log.info("model call failed (also without the JSON grammar): %s", retry_error)
+                return None
         data = _parse_json(getattr(result, "text", "") or "")
         if data is None or any(k not in data for k in required):
             self.failures += 1

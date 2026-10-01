@@ -249,11 +249,12 @@ class Engine:
         product targets of their own (their product page carries the reliable stock signal). Capped per watcher."""
         product = (watcher.get("config") or {}).get("product") or {}
         auto = product.get("auto_track_new_skus", True)
-        cap = int(product.get("max_targets", 15))
+        cap = int(product.get("max_targets", 40))
         policies = (watcher.get("config") or {}).get("policies") or {}
         existing = self.store.targets(watcher_id=watcher["id"])
         known = {t["url"] for t in existing}
-        count = len(existing)
+        # the cap counts product pages only: the search pages that feed them do not use it up
+        count = sum(1 for t in existing if (t.get("extra") or {}).get("page_kind") not in ("search", "listing"))
         for o in offers:
             if not o.url or not o.url.startswith("http") or o.url in known:
                 continue
