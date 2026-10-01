@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "tantalus",
   "name": "Tantalus's Hoard",
-  "purpose": "A local product watcher: restocks, price drops, pre-orders and new SKUs at retailers (typed events with a confidence score, revalidation and cooldown), second-hand finds on Wallapop and Facebook Marketplace scored by explainable packs, material news from official pages, feeds and searches, and the sale mails of game stores and book retailers read (read-only) from the Faustus mailbox and matched to wishlists and watchers, plus a mail noise report, with a dashboard of what is new and notifications by Windows toast, the family bus, ntfy, Telegram or email.",
+  "purpose": "A local product watcher: restocks, price drops, pre-orders and new SKUs at retailers (typed events with a confidence score, revalidation and cooldown), shop-by-shop stock (chains such as Carrefour included) and release days of trading-card products from public stock aggregators, second-hand finds on Wallapop and Facebook Marketplace scored by explainable packs, material news from official pages, feeds and searches, and the sale mails of game stores and book retailers read (read-only) from the Faustus mailbox and matched to wishlists and watchers, plus a mail noise report, with a dashboard of what is new and notifications by Windows toast, the family bus, ntfy, Telegram or email.",
   "capabilities": [
     "restock-watch",
     "price-tracking",
@@ -41,7 +41,11 @@
     "wishlist-match",
     "game-store-deals",
     "book-retailer-deals",
-    "mail-noise-report"
+    "mail-noise-report",
+    "aggregator-radar",
+    "release-calendar",
+    "shop-stock-by-chain",
+    "visible-window-tier"
   ],
   "placeholders": [
     "TANTALUS_DIR",

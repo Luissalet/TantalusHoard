@@ -12,6 +12,8 @@ También lee los correos de oferta que las tiendas de juegos y librerías mandan
 
 Todo corre en tu ordenador: la base SQLite, el planificador y el perfil del navegador. No sale nada salvo las propias peticiones a las páginas y los avisos que actives.
 
+Para productos de cartas sigue además el stock tienda a tienda y el calendario de lanzamientos que publican los agregadores públicos de stock (stocktcg.net y stocktcg.es). Así puede decir «hoy sale la oleada 2: agotada en Carrefour y GAME, en preventa en estas tiendas» y avisar cuando una cadena como Carrefour repone, aunque Carrefour no se deje leer directamente.
+
 ## Qué vigila
 
 | Modo | Qué hace | Ejemplo |
@@ -27,7 +29,8 @@ Descubrimiento, verificación, detección de cambios y aviso van por separado:
 1. **Escalera de lectura.**
    - Primero HTTP normal, con robots.txt, intervalo mínimo por dominio, peticiones condicionales y protección SSRF.
    - Solo si la página es un armazón de JavaScript o la respuesta está bloqueada pasa al navegador sin ventana: Edge en Windows, con perfil persistente.
-   - Si el sitio pide CAPTCHA o login, el objetivo queda como **necesita tu ayuda**. El botón «Resolver» abre una ventana visible para que lo pases tú. Tantalus nunca resuelve ni evita nada.
+   - Algunas tiendas rechazan los navegadores sin ventana pero atienden a un navegador normal (las fichas de Carrefour). Esas páginas se leen en una ventana normal de Edge que se abre minimizada para una página y se cierra, como mucho una vez por minuto en esa tienda (ajuste `browser.window`, activado por defecto).
+   - Si el sitio pide CAPTCHA o login, el objetivo queda como **necesita tu ayuda**. El botón «Resolver» abre una ventana visible para que lo pases tú. Tantalus nunca resuelve, falsea ni evita nada: ni parches de sigilo, ni servicios de CAPTCHA, ni huellas inventadas.
 2. **Extracción.**
    - Van primero los adaptadores de sitio (la API de productos de NVIDIA y el estado embebido de El Corte Inglés).
    - Después JSON-LD `Product`/`Offer`, microdatos y OpenGraph.
@@ -39,7 +42,7 @@ Descubrimiento, verificación, detección de cambios y aviso van por separado:
    - Suman: página oficial +45; botón de compra activo o stock positivo en el endpoint +30 (la disponibilidad estructurada también cuenta +30); stock en una tienda objetivo +20; precio y SKU coherentes +10; segunda confirmación +15.
    - Restan: solo fragmento de buscador −25; vendedor externo −35; CAPTCHA o login −20; contradicciones −20; SKU que no coincide −20.
    - Con 75 o más, avisa. Entre 55 y 74, revalida antes. Por debajo de 55, solo registra.
-5. **Eventos.** Solo en transiciones útiles: `RESTOCK`, `LOCAL_RESTOCK`, `PREORDER_OPEN`, `PRICE_DROP`, `PRICE_THRESHOLD_CROSSED`, `NEW_SKU`, `RESTOCK_DATE_CONFIRMED` y `SOLD_OUT`. Para segunda mano y noticias: `NEW_LISTING`, `LISTING_PRICE_DROP`, `INFO_CHANGE` y `CANDIDATE_FOUND`. Un correo de oferta que coincide con una lista de deseados o un vigilante es `MAIL_DEAL`.
+5. **Eventos.** Solo en transiciones útiles: `RESTOCK`, `LOCAL_RESTOCK`, `PREORDER_OPEN`, `PRICE_DROP`, `PRICE_THRESHOLD_CROSSED`, `NEW_SKU`, `RESTOCK_DATE_CONFIRMED` y `SOLD_OUT`. Para segunda mano y noticias: `NEW_LISTING`, `LISTING_PRICE_DROP`, `INFO_CHANGE` y `CANDIDATE_FOUND`. Un correo de oferta que coincide con una lista de deseados o un vigilante es `MAIL_DEAL`. El radar de agregadores crea `RELEASE` para las fechas de lanzamiento.
    - Cada evento tiene clave de deduplicado (objetivo, tipo, estado, precio redondeado y tienda) y un enfriamiento que absorbe los vaivenes IN→OUT→IN.
    - Los avisos de prioridad alta se vuelven a comprobar 60 s después, antes de enviar nada.
 6. **Aviso.** Cada evento sale una sola vez por canal.
@@ -80,6 +83,19 @@ En el primer arranque se instalan siete vigilantes:
 
 Puedes editarlos, desactivarlos o borrarlos. `config_export` y `config_import` mueven toda la configuración como datos.
 
+## Radar de agregadores: stock por tienda y días de lanzamiento
+
+Un vigilante de disponibilidad con `config.radar.enabled` lee también dos agregadores públicos de stock de cartas:
+
+- **stocktcg.net** sigue unas 190 tiendas de España y Europa, cadenas incluidas (GAME, Carrefour, El Corte Inglés, Alcampo, Amazon, Toys R Us, Toy Planet). En cada ciclo Tantalus lee su feed en directo (`/api/pulse.json`), la página de cada cadena que nombra el vigilante (`/tiendas/<cadena>`: lo que tiene ahora y lo que se agotó hace poco), el calendario (`/lanzamientos`), la página de cada lanzamiento que encaja desde una semana antes hasta una semana después de su fecha (en cada ciclo el mismo día) y unas pocas fichas de producto (`/p/<producto>`: cada tienda con stock, precio e idioma de la edición), las más antiguas primero.
+- **stocktcg.es** aporta su feed de reposiciones y su propio calendario.
+
+Cada oferta de una tienda es una fila. Cuando pasa a comprable, el vigilante recibe `RESTOCK` (o `PREORDER_OPEN`) con la tienda como vendedor. Una cadena avisa siempre. Cualquier otra tienda solo avisa en un idioma de edición permitido (`radar.languages`, ES y EN por defecto), en euros, y a no más del precio de cadena más barato de ese producto × el multiplicador anti-reventa; los precios de reventa quedan registrados sin avisar. Una oferta de cadena en un sitio que Tantalus puede leer (GAME, El Corte Inglés, fichas de Carrefour por la ventana) se comprueba antes en la ficha de la tienda; si allí sale agotado, el aviso queda como registro. Los productos de cadena de esos sitios pasan además a ser objetivos directos del vigilante.
+
+Los lanzamientos crean `RELEASE` cuando uno que encaja entra en el calendario, tres días antes (`radar.release_days_before`) y el mismo día. El aviso dice dónde comprar: cada cadena (en stock, preventa o agotado, con precio) y las tiendas más baratas con stock o preventa. El primer ciclo de un vigilante es silencioso, salvo un lanzamiento de hoy o de esos días. El radar pasa cada 10 minutos, y cada 5 si hay un lanzamiento hoy o mañana. **Novedades** enseña los lanzamientos y un panel por cadena.
+
+Configuración (`config.radar`): `enabled`, `sources` (`stocktcg.net`, `stocktcg.es`), `chains`, `languages`, `alert_other_shops`, `price_multiplier`, `release_days_before`, `max_products`, `track_chain_products`. Herramientas: `radar_status`, `radar_run`, `releases_list`, `radar_offers`, `radar_setup`.
+
 ## Ofertas del correo e informe de ruido
 
 La página **Correo** tiene dos pestañas, **Ofertas** y **Ruido**. Las dos leen el buzón con la cuenta configurada en Faustus: Tantalus ejecuta un lector pequeño (`tantalus_hoard/mail/faustus_reader.py`) con el Python de Faustus, así que la contraseña del correo nunca llega a Tantalus. El lector abre las carpetas en solo lectura y descarga con `BODY.PEEK`. En Tantalus no hay código que envíe, mueva, marque, etiquete, archive, dé de baja ni borre un correo, un test comprueba que el lector no lo tiene, y nunca se abre un enlace de un correo.
@@ -112,7 +128,7 @@ Variables de entorno:
 
 ## Asistentes (MCP)
 
-`python mcp_server.py` es el puente stdio. Nunca abre la base de datos: pasa cada llamada a la app en marcha y la arranca si hace falta. Tiene 48 herramientas:
+`python mcp_server.py` es el puente stdio. Nunca abre la base de datos: pasa cada llamada a la app en marcha y la arranca si hace falta. Tiene 53 herramientas:
 
 - Para empezar: `tantalus_overview`.
 - Para consultas sueltas: `inspect_url`, `secondhand_search` y `web_search`.
@@ -120,13 +136,13 @@ Variables de entorno:
 
 Todas están en [docs/API.md](docs/API.md):
 
-`tantalus_overview`, `tantalus_status`, `watcher_list`, `watcher_get`, `watcher_create`, `watcher_update`, `watcher_delete`, `watcher_run`, `watcher_rescore`, `target_add`, `target_list`, `target_get`, `target_update`, `target_delete`, `target_check`, `target_resolve`, `inspect_url`, `events_list`, `events_mark_seen`, `event_dismiss`, `event_notify`, `listings_list`, `listing_set`, `info_items_list`, `info_item_set`, `candidates_list`, `candidate_accept`, `candidate_reject`, `discovery_run`, `web_search`, `secondhand_search`, `secondhand_facebook_login`, `packs_list`, `presets_list`, `presets_install`, `notify_status`, `notify_test`, `telegram_find_chat_id`, `settings_set`, `secret_set`, `scheduler_status`, `runs_list`, `config_export`, `config_import`, `mail_deals`, `mail_deals_scan`, `mail_noise_report`, `mail_deal_set`.
+`tantalus_overview`, `tantalus_status`, `watcher_list`, `watcher_get`, `watcher_create`, `watcher_update`, `watcher_delete`, `watcher_run`, `watcher_rescore`, `target_add`, `target_list`, `target_get`, `target_update`, `target_delete`, `target_check`, `target_resolve`, `inspect_url`, `events_list`, `events_mark_seen`, `event_dismiss`, `event_notify`, `listings_list`, `listing_set`, `info_items_list`, `info_item_set`, `candidates_list`, `candidate_accept`, `candidate_reject`, `discovery_run`, `web_search`, `secondhand_search`, `secondhand_facebook_login`, `packs_list`, `presets_list`, `presets_install`, `notify_status`, `notify_test`, `telegram_find_chat_id`, `settings_set`, `secret_set`, `scheduler_status`, `runs_list`, `config_export`, `config_import`, `mail_deals`, `mail_deals_scan`, `mail_noise_report`, `mail_deal_set`, `radar_status`, `radar_run`, `releases_list`, `radar_offers`, `radar_setup`.
 
 El texto de las páginas, los títulos, los fragmentos y los asuntos de los correos son datos de terceros. Los resultados de las herramientas lo indican, y el modelo opcional los recibe marcados como contenido no fiable.
 
 ## Límites
 
-- **Sitios bloqueados.** El 30-09-2026 bloqueaban la lectura automática en los dos niveles Carrefour, PcComponentes, Fnac, Toys R Us, Cardmarket, eBay y las páginas del marketplace de NVIDIA. Esos objetivos quedan en «necesita tu ayuda» y se reintentan cada tres horas.
+- **Sitios bloqueados.** El 30-09-2026 bloqueaban la lectura automática en los dos niveles PcComponentes, Fnac, Toys R Us, Cardmarket, eBay y las páginas del marketplace de NVIDIA. Esos objetivos quedan en «necesita tu ayuda» y se reintentan cada tres horas. Las fichas de Carrefour se leen por la ventana visible (02-10-2026); su API de búsqueda contesta con una regla de Cloudflare «you have been blocked» incluso ahí, así que los productos nuevos de Carrefour llegan por el radar de agregadores. El radar es tan fresco como los agregadores: una tienda que no siguen, o el stock en el lineal de un centro, no aparece.
 - **Stock por tienda.** Solo se lee cuando la tienda lo muestra en la página. Si no, la lista de tiendas del vigilante es una preferencia.
 - **DGX Spark.** La API de productos de NVIDIA no la incluye hoy, así que ese objetivo sale «desconocido» hasta que la incluya.
 - **Búsqueda web.** La búsqueda web sin clave es poco fiable desde un programa: DuckDuckGo pide una comprobación anti-bot tras pocas consultas y Bing degrada las consultas largas. Las búsquedas de noticias usan los RSS de Google News y Bing News, que funcionan bien. Para productos, lo fiable para descubrir SKUs nuevos es vigilar las búsquedas de las propias tiendas. SearXNG o una clave de Brave añaden motores web de verdad.

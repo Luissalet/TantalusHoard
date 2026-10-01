@@ -18,6 +18,7 @@ FINAL_TOOLS = {
     "secondhand_search", "secondhand_facebook_login", "packs_list", "presets_list", "presets_install", "notify_status", "notify_test",
     "telegram_find_chat_id", "settings_set", "secret_set", "scheduler_status", "runs_list", "config_export", "config_import",
     "mail_deals", "mail_deals_scan", "mail_noise_report", "mail_deal_set",
+    "radar_status", "radar_run", "releases_list", "radar_offers", "radar_setup",
 }
 
 

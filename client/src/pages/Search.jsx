@@ -53,7 +53,7 @@ function InspectTab() {
         <p className="help">{t("inspect_hint")}</p>
         <div className="grid gap-3 md:grid-cols-[minmax(0,3fr)_140px_minmax(0,1fr)]">
           <Field label="URL"><input className="field" value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} placeholder="https://…" required /></Field>
-          <Field label={t("fetch_tier")}><select className="field" value={f.tier} onChange={(e) => setF({ ...f, tier: e.target.value })}>{["auto", "http", "browser"].map((x) => <option key={x} value={x}>{t(`tier_${x}`)}</option>)}</select></Field>
+          <Field label={t("fetch_tier")}><select className="field" value={f.tier} onChange={(e) => setF({ ...f, tier: e.target.value })}>{["auto", "http", "browser", "window"].map((x) => <option key={x} value={x}>{t(`tier_${x}`)}</option>)}</select></Field>
           <Field label="SKU"><input className="field" value={f.sku} onChange={(e) => setF({ ...f, sku: e.target.value })} /></Field>
         </div>
         <div className="flex flex-wrap items-center gap-3">

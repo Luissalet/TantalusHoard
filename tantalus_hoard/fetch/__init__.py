@@ -94,7 +94,7 @@ class Fetcher:
                 fr.block_reason = "unsafe_url"
             return fr
         host = (urlsplit(full_url).hostname or "").lower()
-        tier = tier if tier in ("auto", "http", "browser") else "auto"
+        tier = tier if tier in ("auto", "http", "browser", "window") else "auto"
         timeout_s = float(timeout or self.config.http_timeout_s)
         with self._host_lock(host):
             result = self._get_locked(full_url, host, tier, dict(headers or {}), accept, etag, last_modified,
@@ -220,6 +220,20 @@ class Fetcher:
         rung_ok = self._rung_available()
         prefers_browser = state["preferred_tier"] == "browser"
 
+        window = tier == "window" or (tier == "auto" and rung_ok and self._window_host(url))
+        if window:
+            if not rung_ok:
+                fr.tier = "window"
+                fr.error = self._rung_unavailable_text()
+                return fr
+            if cooling and tier != "window":
+                return self._cooldown_result(fr, state, "window")   # the shop refused recently: leave it alone for a while
+            interval = self._window_interval(url)
+            self._wait_turn(host, state, max(float(min_interval_s or 0), interval))
+            result = self._attempt_window(url, timeout_s, fr)
+            self._record(host, result)
+            return result
+
         if tier == "http":
             if cooling:
                 return self._cooldown_result(fr, state, "http")
@@ -260,6 +274,35 @@ class Fetcher:
                 return browser_result
             # the browser itself failed (crashed / cannot start): keep the http verdict and say why
             result.error = f"{result.error}; browser fallback failed: {browser_result.error}"
+        return result
+
+    def _window_host(self, url: str) -> bool:
+        """The site profile says a normal visible window is served where headless is refused, and the setting allows it."""
+        try:
+            from ..extract.sites import window_ok
+            if not window_ok(url):
+                return False
+        except Exception:  # noqa: BLE001
+            return False
+        return (self.db.get_setting("browser.window", "1") or "1") == "1"
+
+    @staticmethod
+    def _window_interval(url: str) -> float:
+        try:
+            from ..extract.sites import profile_for_host
+            profile = profile_for_host(url)
+            return float(profile.min_interval_s) if profile else 60.0
+        except Exception:  # noqa: BLE001
+            return 60.0
+
+    def _attempt_window(self, url: str, timeout_s: float, fr: FetchResult) -> FetchResult:
+        rung = self._rung()
+        if rung is None or not hasattr(rung, "fetch_window"):
+            fr.tier = "window"
+            fr.error = self._rung_unavailable_text()
+            return fr
+        result = rung.fetch_window(url, timeout=timeout_s)
+        result.tier = "window"
         return result
 
     # ------------------------------------------------------------------ rungs

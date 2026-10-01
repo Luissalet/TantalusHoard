@@ -1,7 +1,7 @@
 // Vocabulary shared with the backend: event types, availability states, modes, verdicts. Labels live in i18n.js.
 export const EVENT_TYPES = [
   "RESTOCK", "LOCAL_RESTOCK", "PREORDER_OPEN", "PRICE_DROP", "PRICE_THRESHOLD_CROSSED", "NEW_SKU", "RESTOCK_DATE_CONFIRMED",
-  "SOLD_OUT", "NEW_LISTING", "LISTING_PRICE_DROP", "INFO_CHANGE", "CANDIDATE_FOUND", "NEEDS_HUMAN", "MAIL_DEAL",
+  "SOLD_OUT", "NEW_LISTING", "LISTING_PRICE_DROP", "INFO_CHANGE", "CANDIDATE_FOUND", "NEEDS_HUMAN", "MAIL_DEAL", "RELEASE",
 ];
 // Availability alerts a watcher can be told to send (secondhand / information types are raised by their own sentries).
 export const ALERT_TYPES = ["RESTOCK", "LOCAL_RESTOCK", "PREORDER_OPEN", "PRICE_DROP", "PRICE_THRESHOLD_CROSSED", "NEW_SKU", "RESTOCK_DATE_CONFIRMED", "SOLD_OUT"];
@@ -26,6 +26,7 @@ export const EVENT_META = {
   CANDIDATE_FOUND: { color: "#e0a43a", icon: "M11 4a7 7 0 100 14 7 7 0 000-14zM21 21l-5-5M11 8v6M8 11h6" },
   NEEDS_HUMAN: { color: "#e5604b", icon: "M12 3l10 18H2zM12 10v5M12 18h.01" },
   MAIL_DEAL: { color: "#e0a43a", icon: "M3 6h18v12H3zM3 7l9 7 9-7" },
+  RELEASE: { color: "#f0c45a", icon: "M5 5h14v15H5zM5 10h14M9 3v4M15 3v4M9 14h2v2H9z" },
 };
 
 export const STATE_META = {

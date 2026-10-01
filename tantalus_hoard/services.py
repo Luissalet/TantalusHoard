@@ -26,6 +26,7 @@ from .model import BUYABLE, MODE_AVAILABILITY, MODE_INFORMATION, MODE_SECONDHAND
 from .modelprobe import ModelProbe
 from .notify import CHANNELS, EMAIL_BACKENDS, Notifier
 from .presets import PRESETS, get_preset
+from .radar.core import Radar
 from .scheduler import Scheduler
 from .search import WebSearch
 from .store import Store
@@ -108,9 +109,10 @@ class Services:
                              info_sentry=self.info, settings_get=self.db.get_setting, emit=self._emit, clock=clock_fn)
         self.mail = MailDeals(self.store, self.engine, MailRepo(self.db, clock_fn), MailSource(self.notifier, self.db.get_setting),
                               self.db.get_setting, self.db.set_setting, clock=clock_fn)
+        self.radar = Radar(self.db, self.store, self.engine, self.fetcher, self.db.get_setting, self.db.set_setting, clock=clock_fn)
         self.scheduler = Scheduler(self.engine, self.store, clock=clock_fn, enabled=config.scheduler,
                                    paused=lambda: self.db.get_setting("scheduler.paused", "0") == "1",
-                                   extra={"mail_deals": (self.mail.due, self.mail.run_job)})
+                                   extra={"mail_deals": (self.mail.due, self.mail.run_job), "radar": (self.radar.due, self.radar.run_job)})
         should_install = install_presets if install_presets is not None else (config.scheduler and not config.offline)
         if should_install and self.db.get_setting("presets.installed") is None and not self.store.watchers():
             self.install_presets()
@@ -284,6 +286,9 @@ class Services:
             "candidates": self.store.candidates(status="proposed", limit=8),
             "recent": self.store.events(statuses=["confirmed", "logged", "pending"], limit=15),
             "scheduler": self.scheduler.status(), "counts": self.store.counts(),
+            "releases": [r for r in self.radar.releases(upcoming_days=45, past_days=3)],
+            "chains": self.radar.chains_view(),
+            "radar": self.radar.status(),
         }
 
     def mark_visit(self, *, mark_seen: bool = True) -> dict[str, Any]:
@@ -308,6 +313,7 @@ class Services:
         return {"service": SERVICE, "version": __version__, "data_dir": str(self.config.data_dir), "uptime_s": int(time.time() - self.started_at),
                 "counts": self.counts(), "scheduler": self.scheduler.status(), "channels": self.notifier.channels_status(),
                 "mail": {k: v for k, v in self.mail.status().items() if k in ("enabled", "first_scan_done", "last_run_ts", "next_run_ts", "last_error", "counts")},
+                "radar": self.radar.status(),
                 "llm": {"available": ok, "reason": reason, "calls": self.llm.calls, "failures": self.llm.failures, "skipped_budget": self.llm.skipped,
                         "budget": f"{self.llm.max_calls} per {int(self.llm.window_s // 60)} min"},
                 "search_engines": self.websearch.available_engines() if hasattr(self.websearch, "available_engines") else [],

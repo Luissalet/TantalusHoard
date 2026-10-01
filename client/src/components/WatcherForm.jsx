@@ -56,6 +56,7 @@ export function emptyForm(mode = "availability") {
     terms: "", must: "", exclude: "", region: "", stores: "", seller: "retail_only", alert_on: [...DEFAULT_ALERTS],
     require_confidence: "75", revalidate_seconds: "60", cooldown_minutes: "20", min_drop_pct: "5", price_threshold: "", msrp: "", scalper_multiplier: "",
     disc_queries: "", disc_retailers: "", targets: "",
+    radar_enabled: false, radar_chains: "game, carrefour, el-corte-ingles, alcampo, amazon, toys-r-us, toy-planet", radar_languages: "ES, EN", radar_other_shops: true,
     pack: "generic", sh_sources: ["wallapop"], sh_queries: "", sh: {},
     info_sources: [{ kind: "page", value: "", label: "" }], must_terms: "", boost_terms: "", exclude_terms: "", official_domains: "", freshness_days: "",
   };
@@ -80,6 +81,13 @@ export function formFromWatcher(w, packs) {
       min_drop_pct: str(pol.min_drop_pct), price_threshold: str(pol.price_threshold), msrp: str(pol.msrp), scalper_multiplier: str(pol.scalper_multiplier),
       disc_queries: joinLines(d.queries), disc_retailers: joinList(d.retailers),
     });
+    const r = c.radar || {};
+    if (Object.keys(r).length) {
+      f.radar_enabled = !!r.enabled;
+      if (Array.isArray(r.chains)) f.radar_chains = joinList(r.chains);
+      if (Array.isArray(r.languages)) f.radar_languages = joinList(r.languages);
+      if (r.alert_other_shops !== undefined) f.radar_other_shops = !!r.alert_other_shops;
+    }
   } else if (w.mode === "secondhand") {
     const pack = (packs || []).find((p) => p.id === (c.pack || "generic"));
     f.pack = c.pack || "generic";
@@ -136,6 +144,12 @@ export function buildConfig(form, base, packs) {
     put(disc, "queries", splitLines(form.disc_queries));
     put(disc, "retailers", splitList(form.disc_retailers));
     put(cfg, "discovery", disc);
+    const radar = { ...(cfg.radar || {}) };
+    radar.enabled = !!form.radar_enabled;
+    put(radar, "chains", splitList(form.radar_chains).map((x) => x.toLowerCase()));
+    radar.languages = splitList(form.radar_languages).map((x) => x.toUpperCase());
+    radar.alert_other_shops = !!form.radar_other_shops;
+    if (radar.enabled || base?.radar) cfg.radar = radar;
   } else if (form.mode === "secondhand") {
     cfg.pack = form.pack;
     cfg.sources = form.sh_sources;
@@ -324,6 +338,18 @@ export default function WatcherForm({ watcher, draft, onSaved, onCancel }) {
                 {ALERT_TYPES.map((a) => <Check key={a} checked={form.alert_on.includes(a)} onChange={(on) => toggleIn("alert_on", a, on)}>{t(`ev_${a}`)}</Check>)}
               </div>
             </div>
+          </Block>
+          <Block title={t("form_radar")} hint={t("form_radar_hint")}>
+            <label className="inline-flex items-center gap-2"><Switch checked={form.radar_enabled} onChange={set("radar_enabled")} label={t("radar_enabled")} /><span>{t("radar_enabled")}</span></label>
+            {form.radar_enabled && (
+              <Grid cols={2}>
+                <Field label={t("radar_chains")} hint={t("radar_chains_hint")}><input className="field" value={form.radar_chains} onChange={setInput("radar_chains")} /></Field>
+                <Field label={t("radar_languages")} hint={t("radar_languages_hint")}><input className="field" value={form.radar_languages} onChange={setInput("radar_languages")} placeholder="ES, EN" /></Field>
+              </Grid>
+            )}
+            {form.radar_enabled && (
+              <label className="inline-flex items-center gap-2"><Switch checked={form.radar_other_shops} onChange={set("radar_other_shops")} label={t("radar_other_shops")} /><span>{t("radar_other_shops")}</span></label>
+            )}
           </Block>
           <Block title={t("form_discovery")} hint={t("form_discovery_hint")}>
             <Grid cols={2}>

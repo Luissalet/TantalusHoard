@@ -34,7 +34,7 @@ export function EventCard({ event, watcherName, onChanged, compact }) {
           <span className="help ml-auto"><Rel ts={event.detected_at} /></span>
         </div>
         <h3 className="clamp2">{event.title}</h3>
-        {event.summary && <p className="help clamp2" title={event.summary}>{event.summary}</p>}
+        {event.summary && <p className={event.type === "RELEASE" ? "help" : "help clamp2"} title={event.summary}>{event.summary}</p>}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {event.price !== null && event.price !== undefined && <Price value={event.price} currency={event.currency} old={showOld ? event.old_price : undefined} />}
           {event.new_state && <StatePill state={event.new_state} />}

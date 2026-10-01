@@ -61,7 +61,7 @@ function TargetEditForm({ target, onSaved, onCancel }) {
           <select className="field" value={f.seller_policy} onChange={inp("seller_policy")}>{SELLER_POLICIES.map((p) => <option key={p} value={p}>{t(`seller_${p}`)}</option>)}</select>
         </Field>
         <Field label={t("fetch_tier")} hint={t("fetch_tier_hint")}>
-          <select className="field" value={f.fetch_tier} onChange={inp("fetch_tier")}>{["auto", "http", "browser"].map((p) => <option key={p} value={p}>{t(`tier_${p}`)}</option>)}</select>
+          <select className="field" value={f.fetch_tier} onChange={inp("fetch_tier")}>{["auto", "http", "browser", "window"].map((p) => <option key={p} value={p}>{t(`tier_${p}`)}</option>)}</select>
         </Field>
         <Field label={t("adapter")}>
           <select className="field" value={f.adapter} onChange={inp("adapter")}>{["auto", "html", "nvidia"].map((p) => <option key={p} value={p}>{p}</option>)}</select>

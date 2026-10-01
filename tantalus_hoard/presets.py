@@ -39,6 +39,8 @@ PRESETS: list[dict[str, Any]] = [
                 "retailers": ["game.es", "elcorteingles.es", "carrefour.es", "xtralife.com", "amazon.es", "mediamarkt.es", "fnac.es",
                               "toysrus.es", "juguettos.com"],
             },
+            # shop-by-shop stock (Carrefour included) and the release calendar, from the public stock aggregators
+            "radar": {"enabled": True, "languages": ["ES", "EN"]},
         },
         "targets": [
             {"url": "https://www.game.es/buscar/pokemon%2030%20aniversario", "label": "GAME — búsqueda «pokemon 30 aniversario»",

@@ -65,11 +65,14 @@ def _start_playwright() -> Any:
     return sync_playwright().start()
 
 
-def launch_context(pw: Any, profile_dir: Any, *, headless: bool, channels: list[str | None] | None = None) -> tuple[Any, str]:
+def launch_context(pw: Any, profile_dir: Any, *, headless: bool, channels: list[str | None] | None = None,
+                   args: list[str] | None = None) -> tuple[Any, str]:
     """Open the persistent context on the first browser that starts. Returns ``(context, channel_name)``."""
     errors: list[str] = []
     for channel in (channels if channels is not None else channel_order()):
         kwargs: dict[str, Any] = dict(user_data_dir=str(profile_dir), headless=headless, locale="es-ES")
+        if args:
+            kwargs["args"] = list(args)
         if headless:
             kwargs["viewport"] = {"width": 1366, "height": 850}
         else:
@@ -258,7 +261,7 @@ class BrowserRung:
 
     # ------------------------------------------------------------------ sessions (caller thread)
     @contextmanager
-    def browser_session(self, *, headless: bool = True) -> Iterator[Any]:
+    def browser_session(self, *, headless: bool = True, args: list[str] | None = None) -> Iterator[Any]:
         """Yield a Playwright ``BrowserContext`` on the persistent profile.
 
         The context belongs to the *calling* thread (a private Playwright instance is started here), so use
@@ -277,7 +280,8 @@ class BrowserRung:
             except Exception as error:  # noqa: BLE001
                 raise TantalusError("fetch_failed", f"cannot start Playwright: {error}", INSTALL_HINT) from error
             try:
-                ctx, self.channel = launch_context(pw, self.config.browser_profile_dir, headless=headless, channels=self._channels)
+                ctx, self.channel = launch_context(pw, self.config.browser_profile_dir, headless=headless, channels=self._channels,
+                                                   args=args)
             except BrowserUnavailable as error:
                 _quiet(getattr(pw, "stop", None))
                 raise TantalusError("fetch_failed", str(error), "Close any other browser window that uses the Tantalus profile.") from error
@@ -286,6 +290,63 @@ class BrowserRung:
             finally:
                 _quiet(getattr(ctx, "close", None))
                 _quiet(getattr(pw, "stop", None))
+
+    def fetch_window(self, url: str, *, timeout: float | None = None) -> FetchResult:
+        """Read a page in an ordinary visible browser window (started minimised) on the shared profile.
+
+        For shops whose anti-bot layer turns away headless browsers but serves a normal browser (Carrefour): the
+        browser is unmodified, nothing is spoofed or solved, the window opens and closes for one page, and the
+        profile is the one the person uses with «Resolver», so a check they passed there counts here too. A
+        challenge that still shows after the passive waits is reported as blocked (needs a human).
+        """
+        started = time.monotonic()
+        fr = FetchResult(url=url, tier="window", fetched_at=time.time())
+        ok, why = self.available()
+        if not ok:
+            fr.error = why
+            return fr
+        timeout_s = float(timeout or getattr(self.config, "http_timeout_s", 25.0)) + 20
+        outcome: dict[str, Any] = {}
+
+        def run() -> None:
+            try:
+                with self.browser_session(headless=False, args=["--start-minimized"]) as ctx:
+                    page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                    response = page.goto(url, wait_until="domcontentloaded", timeout=int(timeout_s * 1000))
+                    self._settle(page)
+                    html = page.content()
+                    status = response.status if response is not None else 0
+                    headers = {str(k).lower(): str(v) for k, v in (response.headers if response is not None else {}).items()}
+                    verdict = detect_block(status, html, headers, page.url)
+                    rechecks = 0
+                    while verdict in (CLOUDFLARE, AKAMAI) and rechecks < PASSIVE_RECHECKS:
+                        rechecks += 1
+                        page.wait_for_timeout(int(PASSIVE_RECHECK_WAIT_S * 1000))
+                        self._settle(page, budget=2.0)
+                        html = page.content()
+                        verdict = detect_block(200, html, {}, page.url)
+                        if not verdict:
+                            status = 200
+                    outcome.update({"final_url": page.url, "status": status, "text": html, "headers": headers,
+                                    "content_type": headers.get("content-type", "text/html")})
+            except BaseException as error:  # noqa: BLE001
+                outcome["error"] = error
+
+        thread = threading.Thread(target=run, name="tantalus-browser-window", daemon=True)
+        thread.start()
+        thread.join(timeout=timeout_s + SETTLE_BUDGET_S + 60)
+        error = outcome.get("error")
+        if error is not None or "text" not in outcome:
+            text = str(error or "the window did not answer in time").strip().splitlines()
+            fr.error = f"browser window error: {text[0][:200] if text else type(error).__name__}"
+            return fr
+        fr.final_url = outcome["final_url"]
+        fr.status = outcome["status"]
+        fr.text = outcome["text"]
+        fr.content_type = outcome["content_type"]
+        fr.headers = outcome["headers"]
+        fr.elapsed_ms = int((time.monotonic() - started) * 1000)
+        return apply_block(fr, detect_block(fr.status, fr.text, fr.headers, fr.final_url or url))
 
     def open_for_human(self, url: str, *, timeout_s: float = 900.0) -> dict[str, Any]:
         """Open a visible window on the shared profile and return when the person closes it.

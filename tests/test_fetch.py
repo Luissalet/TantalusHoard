@@ -545,3 +545,45 @@ def test_fetcher_open_for_human_clears_the_block(env):
     assert fetcher.host_status()[0]["blocked_now"] is True
     fetcher.open_for_human("https://www.fnac.es/a", timeout_s=2)
     assert fetcher.host_status()[0]["blocked_now"] is False
+
+
+# ------------------------------------------------------------------------------------------------ visible window (Carrefour)
+class FakeWindowBrowser(FakeBrowser):
+    def __init__(self):
+        super().__init__()
+        self.window_calls: list[str] = []
+
+    def fetch_window(self, url, *, timeout=None):
+        self.window_calls.append(url)
+        return FetchResult(url=url, final_url=url, tier="window", status=200, text=HTML, ok=True)
+
+
+def test_carrefour_product_pages_go_through_a_visible_window_and_never_plain_http(env):
+    from tantalus_hoard.extract.sites import window_ok
+    product = "https://www.carrefour.es/pokemon-mini-lata/VC4A-34066236/p"
+    assert window_ok(product) and not window_ok("https://www.carrefour.es/?q=pokemon") and not window_ok("https://www.game.es/x/1")
+    browser = FakeWindowBrowser()
+    fetcher = env.make(browser=browser)
+    fr = fetcher.get(product, respect_robots=False)
+    assert fr.ok and fr.tier == "window" and browser.window_calls == [product] and not browser.calls
+    assert not [r for r in env.pages() if r.url.host == "www.carrefour.es"]
+    # the setting turns it off: back to the headless browser rung
+    env.db.set_setting("browser.window", "0")
+    fr = fetcher.get(product, respect_robots=False, min_interval_s=0)
+    assert fr.tier == "browser" and browser.calls == [product]
+
+
+def test_a_refused_window_leaves_the_shop_alone_for_a_while(env):
+    product = "https://www.carrefour.es/pokemon-ultra-premium/VC4A-34535253/p"
+
+    class Refused(FakeWindowBrowser):
+        def fetch_window(self, url, *, timeout=None):
+            self.window_calls.append(url)
+            return FetchResult(url=url, final_url=url, tier="window", status=403, blocked=True, block_reason="cloudflare",
+                               error="blocked: Cloudflare challenge page", text="<html><title>Attention Required! | Cloudflare</title></html>")
+    browser = Refused()
+    fetcher = env.make(browser=browser)
+    first = fetcher.get(product, respect_robots=False)
+    assert first.blocked and len(browser.window_calls) == 1
+    second = fetcher.get(product, respect_robots=False, min_interval_s=0)
+    assert second.blocked and "not retrying" in second.error and len(browser.window_calls) == 1

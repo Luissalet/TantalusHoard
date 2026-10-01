@@ -57,6 +57,123 @@ function NeedsHelpCard({ card, onDone }) {
   );
 }
 
+
+function relWhen(t, days) {
+  if (days === null || days === undefined) return t("rel_no_date");
+  if (days === 0) return t("rel_today");
+  if (days === 1) return t("rel_tomorrow");
+  if (days === -1) return t("rel_yesterday");
+  return days > 0 ? t("rel_in_days", { n: days }) : t("rel_days_ago", { n: -days });
+}
+
+function dayLabel(iso, lang) {
+  if (!iso) return "";
+  const d = new Date(`${iso}T12:00:00`);
+  return d.toLocaleDateString(lang === "en" ? "en-GB" : "es-ES", { weekday: "short", day: "numeric", month: "short" });
+}
+
+function ReleaseCard({ rel }) {
+  const { t, lang } = useApp();
+  const data = rel.data || {};
+  const where = data.where || {};
+  const chains = where.chains || [];
+  const shops = where.shops || [];
+  const hot = rel.days === 0;
+  return (
+    <article className="panel space-y-2" style={hot ? { borderColor: "var(--accent)" } : undefined} aria-label={rel.title}>
+      <div className="flex items-start gap-3">
+        <div className="shrink-0 rounded-md px-2 py-1 text-center" style={{ background: hot ? "var(--accent)" : "var(--panel-2, #ffffff10)", color: hot ? "#1a1205" : "var(--ink)", minWidth: 64 }}>
+          <div className="text-xs font-semibold uppercase">{relWhen(t, rel.days)}</div>
+          <div className="text-xs">{dayLabel(rel.date, lang)}</div>
+        </div>
+        <div className="min-w-0 flex-1">
+          <h3 className="clamp2">{rel.title}</h3>
+          <div className="help">{[rel.kind, (data.products || []).join(" · ")].filter(Boolean).join(" — ")}</div>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {data.stores_total != null && <Chip>{t("rel_stores_n", { n: data.stores_total })}</Chip>}
+            {data.stores_buyable > 0 && <Chip className="chip-ok">{t("rel_shops")}: {data.stores_buyable}</Chip>}
+            {data.stores_soldout > 0 && <Chip className="chip-danger">{t("rel_soldout_n", { n: data.stores_soldout })}</Chip>}
+          </div>
+        </div>
+      </div>
+      {chains.length > 0 && (
+        <div>
+          <span className="label">{t("rel_chains")}</span>
+          <div className="flex flex-wrap gap-1.5">
+            {chains.map((c) => {
+              const buy = c.state === "IN_STOCK" || c.state === "PREORDER";
+              const chip = <Chip className={buy ? (c.state === "PREORDER" ? "chip-info" : "chip-ok") : "chip-danger"}>{c.store} · {t(`state_${c.state}`)}{c.price ? ` · ${c.price.toFixed(2).replace(".", ",")} €` : ""}</Chip>;
+              return buy && c.url ? <a key={c.slug} href={c.url} target="_blank" rel="noopener noreferrer" className="no-underline">{chip}</a> : <span key={c.slug}>{chip}</span>;
+            })}
+          </div>
+        </div>
+      )}
+      <div>
+        <span className="label">{t("rel_shops")}</span>
+        {shops.length ? (
+          <ul className="m-0 list-none space-y-0.5 p-0">
+            {shops.slice(0, 8).map((sh, i) => (
+              <li key={`${sh.slug}-${i}`} className="flex items-center gap-2">
+                <a className="trunc flex-1" href={sh.url} target="_blank" rel="noopener noreferrer">{sh.store}</a>
+                <span className="help trunc">{[sh.fmt, sh.lang].filter(Boolean).join(" · ")}</span>
+                {sh.state === "PREORDER" && <Chip className="chip-info">{t("state_PREORDER")}</Chip>}
+                <Price value={sh.price} currency={sh.currency} />
+              </li>
+            ))}
+            {where.shops_total > 8 && <li className="help">{t("rel_more_shops", { n: where.shops_total - 8 })}</li>}
+          </ul>
+        ) : <p className="help m-0">{t("rel_no_shops")}</p>}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {rel.url && <ExtLink href={rel.url}>{t("rel_see_page")}</ExtLink>}
+        {data.buy_url && data.buy_url !== rel.url && <ExtLink href={data.buy_url}>{t("open")}</ExtLink>}
+      </div>
+    </article>
+  );
+}
+
+function ChainsPanel({ chains }) {
+  const { t } = useApp();
+  return (
+    <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+      {chains.map((c) => (
+        <article key={c.slug} className="panel panel-tight space-y-1.5" aria-label={c.store}>
+          <div className="flex items-center gap-2">
+            <span className="font-semibold">{c.store}</span>
+            {c.buyable.length > 0 ? <Chip className="chip-ok">{t("n_buyable", { n: c.buyable.length })}</Chip> : <Chip>{t("chain_none")}</Chip>}
+          </div>
+          {c.buyable.length > 0 && (
+            <ul className="m-0 list-none space-y-0.5 p-0">
+              {c.buyable.slice(0, 8).map((b, i) => (
+                <li key={i} className="flex items-center gap-2">
+                  <a className="trunc flex-1" href={b.url} target="_blank" rel="noopener noreferrer" title={b.title}>{b.title}</a>
+                  <StatePill state={b.state} />
+                  <Price value={b.price} currency={b.currency} />
+                </li>
+              ))}
+            </ul>
+          )}
+          {c.soldout.length > 0 && (
+            <details>
+              <summary className="help cursor-pointer">{t("chain_recent_out")} ({c.soldout.length})</summary>
+              <ul className="m-0 list-none space-y-0.5 p-0 pt-1">
+                {c.soldout.map((b, i) => (
+                  <li key={i} className="flex items-center gap-2 help">
+                    <span className="trunc flex-1" title={b.title}>{b.title}</span>
+                    {b.lang && <span>{b.lang}</span>}
+                    <Price value={b.price} currency={b.currency} />
+                    <Rel ts={b.last_change_ts} />
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </article>
+      ))}
+    </div>
+  );
+}
+
 function WatcherStrip({ watchers }) {
   const { t } = useApp();
   if (!watchers.length) return null;
@@ -101,7 +218,16 @@ export default function Novedades() {
     refreshHealth();
   });
   const reload = () => refreshDash();
-  const nothing = !dash.news.length && !dash.buyable.length && !dash.needs_human.length && !dash.listings.length && !dash.info.length && !dash.candidates.length;
+  const releases = (dash.releases || []).filter((r) => r.days === null || r.days === undefined || r.days >= -1);
+  const chains = dash.chains || [];
+  const radarOn = (dash.radar?.watchers || []).length > 0;
+  const runRadar = () => run("radar", async () => {
+    const r = await api.call("radar_run", {});
+    const n = (r.result?.watchers || []).reduce((acc, w) => acc + (w.events || 0), 0);
+    notify(t("radar_done", { n }));
+    await refreshDash();
+  });
+  const nothing = !(dash.releases || []).length && !dash.news.length && !dash.buyable.length && !dash.needs_human.length && !dash.listings.length && !dash.info.length && !dash.candidates.length;
   const noWatchers = dash.watchers.length === 0;
 
   return (
@@ -142,11 +268,27 @@ export default function Novedades() {
         </Empty>
       )}
 
+      {radarOn && releases.length > 0 && (
+        <Section id="sec-releases" title={t("sec_releases")} count={releases.length}
+          actions={<Busy className="btn btn-sm" busy={busy.radar} onClick={runRadar}>{t("radar_run")}</Busy>}>
+          <p className="help">{t("releases_explain")}{dash.radar?.last_run_ts ? <> · {t("radar_last_run")}: <Rel ts={dash.radar.last_run_ts} /></> : null}</p>
+          <div className="card-grid">{releases.map((r) => <ReleaseCard key={r.id} rel={r} />)}</div>
+        </Section>
+      )}
+
       {dash.news.length > 0 && (
         <Section id="sec-news" title={t("sec_news")} count={dash.news.length}>
           <div className="card-grid">
             {dash.news.map((e) => <EventCard key={e.id} event={e} watcherName={wname[e.watcher_id]} onChanged={reload} />)}
           </div>
+        </Section>
+      )}
+
+      {radarOn && chains.length > 0 && (
+        <Section id="sec-chains" title={t("sec_chains")} count={chains.reduce((a, c) => a + c.buyable.length, 0)}
+          actions={releases.length ? null : <Busy className="btn btn-sm" busy={busy.radar} onClick={runRadar}>{t("radar_run")}</Busy>}>
+          <p className="help">{t("chains_explain")}</p>
+          <ChainsPanel chains={chains} />
         </Section>
       )}
 

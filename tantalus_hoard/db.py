@@ -290,6 +290,60 @@ MIGRATIONS: list[str] = [
       deals INTEGER NOT NULL DEFAULT 0
     );
     """,
+    # 4: the aggregator radar (shop offers seen on stock aggregators, release calendar, page fetch times)
+    """
+CREATE TABLE radar_offers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  watcher_id TEXT NOT NULL,
+  okey TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT '',
+  store TEXT NOT NULL DEFAULT '',
+  store_slug TEXT NOT NULL DEFAULT '',
+  chain INTEGER NOT NULL DEFAULT 0,
+  title TEXT NOT NULL DEFAULT '',
+  url TEXT NOT NULL DEFAULT '',
+  product_key TEXT NOT NULL DEFAULT '',
+  release TEXT NOT NULL DEFAULT '',
+  set_name TEXT NOT NULL DEFAULT '',
+  fmt TEXT NOT NULL DEFAULT '',
+  lang TEXT NOT NULL DEFAULT '',
+  image TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL DEFAULT 'UNKNOWN',
+  price REAL,
+  currency TEXT NOT NULL DEFAULT 'EUR',
+  first_seen_ts REAL NOT NULL,
+  last_seen_ts REAL NOT NULL,
+  last_change_ts REAL NOT NULL,
+  last_buyable_ts REAL,
+  extra TEXT NOT NULL DEFAULT '{}',
+  UNIQUE(watcher_id, okey)
+);
+CREATE INDEX radar_offers_watcher ON radar_offers(watcher_id, state, last_change_ts);
+CREATE TABLE radar_releases (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  watcher_id TEXT NOT NULL,
+  rkey TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT '',
+  slug TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '',
+  date TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT '',
+  url TEXT NOT NULL DEFAULT '',
+  data TEXT NOT NULL DEFAULT '{}',
+  first_seen_ts REAL NOT NULL,
+  last_seen_ts REAL NOT NULL,
+  detail_ts REAL,
+  alerted TEXT NOT NULL DEFAULT '[]',
+  UNIQUE(watcher_id, rkey)
+);
+CREATE TABLE radar_pages (
+  url TEXT PRIMARY KEY,
+  last_fetch_ts REAL NOT NULL,
+  ok INTEGER NOT NULL DEFAULT 1,
+  error TEXT NOT NULL DEFAULT ''
+);
+    """,
 ]
 
 

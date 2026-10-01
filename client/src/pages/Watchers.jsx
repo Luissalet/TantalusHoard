@@ -271,7 +271,7 @@ function TargetAddForm({ watcher, onAdded }) {
           <select className="field" value={f.seller_policy} onChange={inp("seller_policy")}>{SELLER_POLICIES.map((s) => <option key={s} value={s}>{t(`seller_${s}`)}</option>)}</select>
         </Field>
         <Field label={t("fetch_tier")} hint={t("fetch_tier_hint")}>
-          <select className="field" value={f.fetch_tier} onChange={inp("fetch_tier")}>{["auto", "http", "browser"].map((s) => <option key={s} value={s}>{t(`tier_${s}`)}</option>)}</select>
+          <select className="field" value={f.fetch_tier} onChange={inp("fetch_tier")}>{["auto", "http", "browser", "window"].map((s) => <option key={s} value={s}>{t(`tier_${s}`)}</option>)}</select>
         </Field>
       </div>
       <ErrorBox error={error} />

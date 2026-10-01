@@ -35,6 +35,8 @@ class SiteProfile:
     product_url: str = ""                       # regex on the URL path(+query) of a product page
     search_url: str = ""                        # regex on the URL path(+query) of a search page
     min_interval_s: float = 20.0                # politeness interval hint for the fetcher
+    window_ok: bool = False                     # a normal visible browser window is served where headless is refused
+    window_paths: tuple[str, ...] = ()          # ... only for these path patterns (regex); empty = any path
     notes: str = ""
 
 
@@ -57,8 +59,12 @@ _PROFILES: tuple[SiteProfile, ...] = (
     ),
     SiteProfile(
         "carrefour.es", "Carrefour", needs_browser=True, blocks_automation="cloudflare",
-        first_party_sellers=("carrefour",),
-        notes="verified: Cloudflare 'Attention Required' 403 over http and headless Edge.",
+        first_party_sellers=("carrefour",), window_ok=True, window_paths=(r"/p/?$",), min_interval_s=300.0,
+        product_url=r"/p/?$",
+        notes="verified 2026-10-02: Cloudflare 'Attention Required' 403 over http and headless Edge; an ordinary visible Edge "
+              "window gets product pages (200, JSON-LD Product with availability). Category pages and the search API answer a "
+              "Cloudflare challenge or a 'you have been blocked' rule even inside the window, so new products are found through "
+              "the aggregator radar and web search.",
     ),
     SiteProfile(
         "amazon.es", "Amazon", needs_browser=False, first_party_sellers=("amazon", "amazon.es", "amazon eu sarl", "amazon eu s.à r.l."),
@@ -219,6 +225,17 @@ def _key(value: str) -> str:
 
 _CORPORATE_WORDS = frozenset({"espana", "spain", "es", "sl", "slu", "sa", "eu", "sarl", "com", "inc", "ltd",
                               "europe", "iberia", "online", "tienda", "store", "oficial", "official"})
+
+
+def window_ok(host_or_url: str) -> bool:
+    """Is an ordinary visible browser window the way to read this URL (headless is refused)?"""
+    profile = profile_for_host(host_or_url)
+    if profile is None or not profile.window_ok:
+        return False
+    if not profile.window_paths or "://" not in (host_or_url or ""):
+        return not profile.window_paths
+    path = urlsplit(host_or_url).path
+    return any(re.search(p, path) for p in profile.window_paths)
 
 
 def kind_of_url(url: str) -> str:

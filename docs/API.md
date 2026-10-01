@@ -124,7 +124,7 @@ Annotations: openWorldHint.
 | `price_ceiling` (number/null) | no |  |
 | `price_threshold` (number/null) | no | Alert when the price falls to or below this. |
 | `seller_policy` (string/null) | no |  |
-| `fetch_tier` (auto \| http \| browser) | no |  |
+| `fetch_tier` (auto \| http \| browser \| window) | no |  |
 | `adapter` (string) | no | auto \| html \| nvidia |
 | `interval_min` (integer/null) | no |  |
 | `check_now` (boolean) | no | Run a first check right away. |
@@ -223,7 +223,7 @@ Annotations: readOnlyHint, idempotentHint, openWorldHint.
 | Argument | Required | Description |
 |---|---|---|
 | `url` (string) | yes |  |
-| `tier` (auto \| http \| browser) | no |  |
+| `tier` (auto \| http \| browser \| window) | no |  |
 | `sku` (string) | no |  |
 | `show_text` (boolean) | no | Include up to 3000 chars of the readable page text. |
 
@@ -237,7 +237,7 @@ Annotations: readOnlyHint, idempotentHint.
 |---|---|---|
 | `watcher_id` (string/null) | no |  |
 | `target_id` (string/null) | no |  |
-| `types` (array/null) | no | RESTOCK, LOCAL_RESTOCK, PREORDER_OPEN, PRICE_DROP, PRICE_THRESHOLD_CROSSED, NEW_SKU, RESTOCK_DATE_CONFIRMED, SOLD_OUT, NEW_LISTING, LISTING_PRICE_DROP, INFO_CHANGE, CANDIDATE_FOUND, NEEDS_HUMAN, MAIL_DEAL |
+| `types` (array/null) | no | RESTOCK, LOCAL_RESTOCK, PREORDER_OPEN, PRICE_DROP, PRICE_THRESHOLD_CROSSED, NEW_SKU, RESTOCK_DATE_CONFIRMED, SOLD_OUT, NEW_LISTING, LISTING_PRICE_DROP, INFO_CHANGE, CANDIDATE_FOUND, NEEDS_HUMAN, MAIL_DEAL, RELEASE |
 | `statuses` (array/null) | no |  |
 | `unseen_only` (boolean) | no |  |
 | `limit` (integer) | no |  |
@@ -559,6 +559,76 @@ Annotations: none.
 |---|---|---|
 | `deal_id` (integer) | yes |  |
 | `status` (active \| dismissed) | yes |  |
+
+## `radar_status`
+
+Aggregator radar: shops with stock now per chain (Carrefour, GAME, El Corte Inglés...). Radar de tiendas.
+
+Per chain, the matching products it has in stock or on pre-order and the ones that sold out recently, read from stock aggregators (stocktcg.net / stocktcg.es) because Carrefour and others block direct reading. Sinónimos: stock en Carrefour, qué hay en GAME, tiendas.
+
+Annotations: readOnlyHint, idempotentHint.
+
+## `radar_run`
+
+Read the stock aggregators now: feeds, chain pages, release pages, product pages. Comprobar radar ahora.
+
+Raises RESTOCK / PREORDER_OPEN per shop and RELEASE for matching releases. Sinónimos: actualizar stock, mirar tiendas ahora.
+
+Annotations: openWorldHint.
+
+| Argument | Required | Description |
+|---|---|---|
+| `watcher_id` (string) | no | Only this watcher; empty = every watcher with the radar on. |
+
+## `releases_list`
+
+Upcoming releases for the watchers: date, where to buy, where sold out. Calendario de lanzamientos.
+
+Date, products, chains (in stock / pre-order / sold out with price) and the cheapest shops with stock or pre-order. Sinónimos: qué sale hoy, próximos lanzamientos, oleada, preventas, dónde comprar.
+
+Annotations: readOnlyHint, idempotentHint.
+
+| Argument | Required | Description |
+|---|---|---|
+| `watcher_id` (string) | no |  |
+| `upcoming_days` (integer) | no |  |
+| `past_days` (integer) | no |  |
+
+## `radar_offers`
+
+Shop offers seen on the stock aggregators, filterable by shop, state and product. Ofertas por tienda.
+
+Sinónimos: quién tiene stock, precio por tienda, dónde hay, agotado en.
+
+Annotations: readOnlyHint, idempotentHint.
+
+| Argument | Required | Description |
+|---|---|---|
+| `watcher_id` (string) | no |  |
+| `store` (string) | no | Shop slug or name: carrefour, game, el-corte-ingles, amazon, alcampo, toys-r-us... |
+| `buyable` (boolean/null) | no | true = in stock or pre-order now; false = sold out. |
+| `chains_only` (boolean) | no |  |
+| `product_key` (string) | no | Aggregator product slug, e.g. 30th-anniversary--etb. |
+| `limit` (integer) | no |  |
+
+## `radar_setup`
+
+Turn the aggregator radar on or off for a watcher and choose chains, languages, sources. Configurar radar.
+
+Sinónimos: activar radar, avisar de Carrefour, cadenas, idiomas de edición.
+
+Annotations: none.
+
+| Argument | Required | Description |
+|---|---|---|
+| `watcher_id` (string) | yes |  |
+| `enabled` (boolean/null) | no |  |
+| `sources` (array/null) | no |  |
+| `chains` (array/null) | no | Shop slugs that always alert (game, carrefour, el-corte-ingles, alcampo, amazon, toys-r-us, toy-planet...). |
+| `languages` (array/null) | no | Edition languages that may alert, e.g. [ES, EN]. Empty = any. |
+| `alert_other_shops` (boolean/null) | no | Small shops alert too, only at a sane price (cheapest chain price or MSRP × multiplier). |
+| `price_multiplier` (number/null) | no |  |
+| `release_days_before` (integer/null) | no |  |
 
 ## REST routes for the UI
 
