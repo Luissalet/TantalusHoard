@@ -17,7 +17,7 @@ from typing import Any, Iterable, Optional
 
 from bs4 import BeautifulSoup, Tag
 
-from ..model import IN_STOCK, MARKETPLACE_ONLY, OUT_OF_STOCK, PREORDER, RESTOCK_SCHEDULED, UNKNOWN
+from ..model import COMING_SOON, IN_STOCK, MARKETPLACE_ONLY, OUT_OF_STOCK, PREORDER, RESTOCK_SCHEDULED, UNKNOWN
 from .text import _is_hidden
 
 EVIDENCE_MAX = 160
@@ -183,6 +183,8 @@ SOLDOUT = ("agotado", "agotada", "agotados", "sin stock", "no disponible", "out 
            "unavailable")
 NOTIFY = ("avisame", "avisarme", "avisadme", "notify me", "notifica me", "notificame", "email me when",
           "notify when", "recibir aviso", "avisame cuando")
+COMING_SOON_PH = ("proximamente", "disponible proximamente", "a la venta proximamente", "muy pronto", "disponible muy pronto",
+                  "coming soon", "available soon", "en breve a la venta")
 PICKUP = ("recogida en tienda", "recoger hoy", "recoger en tienda", "disponible en tienda", "disponible para recoger",
           "click & collect", "click and collect", "clic y recoger", "clic & recoger", "recogida gratuita en tienda")
 MARKETPLACE_ONLY_PH = ("otras opciones de compra", "ver todas las opciones de compra", "see all buying options",
@@ -228,6 +230,7 @@ class PhraseScan:
     evidence: list[str] = field(default_factory=list)
     controls: list[Control] = field(default_factory=list)
     store_availability: dict[str, str] = field(default_factory=dict)
+    coming_soon: Optional[str] = None   # the "Próximamente" line, when the page says the product is not on sale yet
 
     @property
     def decided(self) -> bool:
@@ -252,6 +255,32 @@ def _has_phrase(text: str, phrases: Iterable[str]) -> bool:
         elif re.search(rf"(?<![a-z0-9]){re.escape(p)}(?![a-z0-9])", t):
             return True
     return False
+
+
+_BUY_BOX = re.compile(r"buy|cart|basket|stock|availab|disponib|cta|purchase|quick-?action|add-?to", re.I)
+
+
+def _coming_soon_in_buy_box(soup: BeautifulSoup) -> Optional[str]:
+    """A short "Próximamente" label inside the buy box (an ancestor whose class / id talks about buying or stock).
+
+    Pages often have "Próximamente" carousels elsewhere; only the label where the buy button would be counts.
+    """
+    for node in soup.find_all(string=True):
+        text = str(node).strip()
+        if not text or len(text) > 40 or not leads_with(text, COMING_SOON_PH):
+            continue
+        parent = node.parent
+        if parent is None or parent.name in ("script", "style", "title", "option") or _hidden_chain(parent):
+            continue
+        hops = 0
+        for anc in parent.parents:
+            hops += 1
+            if hops > 5 or anc.name in ("body", "html", "nav", "footer"):
+                break
+            marks = " ".join(anc.get("class") or []) + " " + str(anc.get("id") or "")
+            if _BUY_BOX.search(marks):
+                return text
+    return None
 
 
 def leads_with(text: str, phrases_: Iterable[str]) -> bool:
@@ -403,6 +432,12 @@ def scan(soup: BeautifulSoup, text: str, *, headline: str = "", profile: Any = N
     hint_pos = next((h for h in hint_texts if _has_phrase(h, POSITIVE_STOCK) and not any(n in norm(h) for n in _NEGATED)), None)
     window_sold = next((line for line in window.splitlines() if leads_with(line, SOLDOUT) or leads_with(line, NOTIFY)), None)
     market_only = next((line for line in text.splitlines() if len(line) <= 90 and _has_phrase(line, MARKETPLACE_ONLY_PH)), None)
+    # "Próximamente": a short line or control in the product area (GAME shows it where the buy button will be)
+    soon_ctrl = next((c.text for c in controls if not c.hidden and leads_with(c.text, COMING_SOON_PH)), None)
+    soon_box = _coming_soon_in_buy_box(soup)
+    soon_line = next((line for line in window.splitlines()[:120] if leads_with(line, COMING_SOON_PH)), None) if headline else None
+    found = soon_ctrl or soon_box or soon_line
+    out.coming_soon = snippet(found) if found else None
 
     # ---- dates
     for line in window.splitlines():
@@ -456,6 +491,10 @@ def scan(soup: BeautifulSoup, text: str, *, headline: str = "", profile: Any = N
         out.evidence.append(snippet(f"control: {active_buy[0].text}"))
         if strong_sold:
             out.mixed_signals = True
+    elif out.coming_soon:
+        out.state = COMING_SOON
+        out.buy_button = False
+        out.evidence.append(out.coming_soon)
     elif ctrl_sold or hint_sold or off_buy:
         out.state = RESTOCK_SCHEDULED if out.restock_date else OUT_OF_STOCK
         out.buy_button = False
@@ -473,7 +512,7 @@ def scan(soup: BeautifulSoup, text: str, *, headline: str = "", profile: Any = N
     if out.state == PREORDER and not out.preorder_date and out.restock_date:
         out.preorder_date = out.restock_date
         out.restock_date = None
-    if out.state not in (PREORDER,):
+    if out.state not in (PREORDER, COMING_SOON):
         out.preorder_date = out.preorder_date if out.state == UNKNOWN else None
     out.evidence = list(dict.fromkeys(e for e in out.evidence if e))
     return out

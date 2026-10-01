@@ -10,15 +10,15 @@ import hashlib
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from .model import (BUYABLE, IN_STOCK, LOCAL_PICKUP, LOCAL_RESTOCK, MARKETPLACE_ONLY, OUT_OF_STOCK, PREORDER,
+from .model import (BUYABLE, COMING_SOON, IN_STOCK, LOCAL_PICKUP, LOCAL_RESTOCK, MARKETPLACE_ONLY, OUT_OF_STOCK, PREORDER,
                     PREORDER_OPEN, PRICE_DROP, PRICE_THRESHOLD_CROSSED, RESTOCK, RESTOCK_DATE_CONFIRMED,
-                    RESTOCK_SCHEDULED, SELLER_ANY_BELOW, SELLER_RETAIL_ONLY, SOLD_OUT, UNKNOWN, Offer)
+                    RESTOCK_SCHEDULED, SALE_OPEN, SELLER_ANY_BELOW, SELLER_RETAIL_ONLY, SOLD_OUT, UNKNOWN, Offer)
 
 ALERT_THRESHOLD = 75
 REVALIDATE_THRESHOLD = 55
 
 DEFAULT_POLICIES: dict[str, Any] = {
-    "alert_on": [RESTOCK, LOCAL_RESTOCK, PREORDER_OPEN, PRICE_DROP, PRICE_THRESHOLD_CROSSED, RESTOCK_DATE_CONFIRMED],
+    "alert_on": [RESTOCK, LOCAL_RESTOCK, PREORDER_OPEN, SALE_OPEN, PRICE_DROP, PRICE_THRESHOLD_CROSSED, RESTOCK_DATE_CONFIRMED],
     "require_confidence": ALERT_THRESHOLD,
     "revalidate_seconds": 60,
     "cooldown_minutes": 20,
@@ -27,11 +27,11 @@ DEFAULT_POLICIES: dict[str, Any] = {
     "notify_sold_out": False,
 }
 
-SEVERITY = {RESTOCK: "high", LOCAL_RESTOCK: "high", PREORDER_OPEN: "high", PRICE_THRESHOLD_CROSSED: "high",
+SEVERITY = {RESTOCK: "high", LOCAL_RESTOCK: "high", PREORDER_OPEN: "high", SALE_OPEN: "high", PRICE_THRESHOLD_CROSSED: "high",
             PRICE_DROP: "medium", RESTOCK_DATE_CONFIRMED: "medium", SOLD_OUT: "low"}
 
 STATE_LABEL_ES = {IN_STOCK: "en stock", LOCAL_PICKUP: "recogida en tienda", PREORDER: "reserva abierta",
-                  RESTOCK_SCHEDULED: "reposición anunciada", OUT_OF_STOCK: "agotado", "UNAVAILABLE_REGION": "no disponible en la región",
+                  RESTOCK_SCHEDULED: "reposición anunciada", COMING_SOON: "próximamente", OUT_OF_STOCK: "agotado", "UNAVAILABLE_REGION": "no disponible en la región",
                   MARKETPLACE_ONLY: "solo vendedores externos", UNKNOWN: "desconocido"}
 
 
@@ -145,7 +145,9 @@ def transitions(*, target: dict[str, Any], prev_state: str, prev_price: Optional
         out.append({"type": kind, "old_state": prev_state, "new_state": state, "price": price, "old_price": prev_price,
                     "severity": SEVERITY.get(kind, "medium"), "over_ceiling": over, **extra})
 
-    if state in (IN_STOCK,) and not was_buyable:
+    if state in BUYABLE and prev_state == COMING_SOON:
+        draft(SALE_OPEN, first_check=first_check, sale_kind="preorder" if state == PREORDER else "sale")
+    elif state in (IN_STOCK,) and not was_buyable:
         draft(RESTOCK, first_check=first_check)
     elif state == LOCAL_PICKUP and prev_state != LOCAL_PICKUP:
         draft(LOCAL_RESTOCK if not was_buyable else RESTOCK, first_check=first_check)
@@ -182,6 +184,9 @@ def summary_for(kind: str, *, title: str, retailer: str, state: str, price: Opti
         base = f"{title}: recogida en tienda{where} por {money}"
     elif kind == PREORDER_OPEN:
         base = f"{title}: reserva abierta{where} por {money}"
+    elif kind == SALE_OPEN:
+        what = "reservas abiertas" if extra.get("sale_kind") == "preorder" else "ya a la venta"
+        base = f"{title}: {what}{where} por {money} (antes ponía «Próximamente»)"
     elif kind == RESTOCK_DATE_CONFIRMED:
         base = f"{title}: reposición anunciada{where} para {extra.get('restock_date')}"
     elif kind == SOLD_OUT:

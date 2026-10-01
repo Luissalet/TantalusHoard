@@ -237,7 +237,7 @@ Annotations: readOnlyHint, idempotentHint.
 |---|---|---|
 | `watcher_id` (string/null) | no |  |
 | `target_id` (string/null) | no |  |
-| `types` (array/null) | no | RESTOCK, LOCAL_RESTOCK, PREORDER_OPEN, PRICE_DROP, PRICE_THRESHOLD_CROSSED, NEW_SKU, RESTOCK_DATE_CONFIRMED, SOLD_OUT, NEW_LISTING, LISTING_PRICE_DROP, INFO_CHANGE, CANDIDATE_FOUND, NEEDS_HUMAN, MAIL_DEAL, RELEASE |
+| `types` (array/null) | no | RESTOCK, LOCAL_RESTOCK, PREORDER_OPEN, PRICE_DROP, PRICE_THRESHOLD_CROSSED, NEW_SKU, RESTOCK_DATE_CONFIRMED, SOLD_OUT, NEW_LISTING, LISTING_PRICE_DROP, INFO_CHANGE, CANDIDATE_FOUND, NEEDS_HUMAN, MAIL_DEAL, RELEASE, SALE_OPEN |
 | `statuses` (array/null) | no |  |
 | `unseen_only` (boolean) | no |  |
 | `limit` (integer) | no |  |

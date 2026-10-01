@@ -6,7 +6,7 @@ import { ALERT_TYPES, MODES, MODE_META, SELLER_POLICIES } from "../meta.js";
 import { Busy, Check, ErrorBox, Field, Icon, Switch, Tabs, useBusy } from "./ui.jsx";
 
 const DEFAULT_INTERVAL = { availability: "30", secondhand: "45", information: "180" };
-const DEFAULT_ALERTS = ["RESTOCK", "LOCAL_RESTOCK", "PREORDER_OPEN", "NEW_SKU", "RESTOCK_DATE_CONFIRMED", "PRICE_DROP", "PRICE_THRESHOLD_CROSSED"];
+const DEFAULT_ALERTS = ["RESTOCK", "LOCAL_RESTOCK", "PREORDER_OPEN", "SALE_OPEN", "NEW_SKU", "RESTOCK_DATE_CONFIRMED", "PRICE_DROP", "PRICE_THRESHOLD_CROSSED"];
 const CORE_SH_FIELDS = [
   { key: "origin_location", type: "text", label_es: "Ubicación de referencia", label_en: "Origin location" },
   { key: "radius_km", type: "number", label_es: "Radio (km)", label_en: "Radius (km)" },

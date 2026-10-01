@@ -15,14 +15,15 @@ IN_STOCK = "IN_STOCK"                    # can be bought now
 LOCAL_PICKUP = "LOCAL_PICKUP"            # pickup available at a target store
 PREORDER = "PREORDER"                    # reservation / pre-order open
 RESTOCK_SCHEDULED = "RESTOCK_SCHEDULED"  # future restock with a reliable date
+COMING_SOON = "COMING_SOON"              # announced but not on sale yet ("Próximamente", "coming soon")
 OUT_OF_STOCK = "OUT_OF_STOCK"            # explicitly sold out
 UNAVAILABLE_REGION = "UNAVAILABLE_REGION"  # exists but not sold / shipped to the region
 MARKETPLACE_ONLY = "MARKETPLACE_ONLY"    # only third-party sellers / resale
 UNKNOWN = "UNKNOWN"                      # cannot be determined safely
 
-STATES = (IN_STOCK, LOCAL_PICKUP, PREORDER, RESTOCK_SCHEDULED, OUT_OF_STOCK, UNAVAILABLE_REGION, MARKETPLACE_ONLY, UNKNOWN)
+STATES = (IN_STOCK, LOCAL_PICKUP, PREORDER, RESTOCK_SCHEDULED, COMING_SOON, OUT_OF_STOCK, UNAVAILABLE_REGION, MARKETPLACE_ONLY, UNKNOWN)
 BUYABLE = frozenset({IN_STOCK, LOCAL_PICKUP, PREORDER})
-NOT_BUYABLE = frozenset({OUT_OF_STOCK, UNAVAILABLE_REGION, MARKETPLACE_ONLY, UNKNOWN, RESTOCK_SCHEDULED})
+NOT_BUYABLE = frozenset({OUT_OF_STOCK, UNAVAILABLE_REGION, MARKETPLACE_ONLY, UNKNOWN, RESTOCK_SCHEDULED, COMING_SOON})
 
 # ----------------------------------------------------------------------------- event types
 RESTOCK = "RESTOCK"
@@ -39,10 +40,11 @@ INFO_CHANGE = "INFO_CHANGE"          # information sentry: material news
 CANDIDATE_FOUND = "CANDIDATE_FOUND"  # discovery: a new URL proposed as target
 NEEDS_HUMAN = "NEEDS_HUMAN"          # a target is blocked behind CAPTCHA / login
 MAIL_DEAL = "MAIL_DEAL"              # a sale mail from a game store / book retailer that matches a wishlist or a watch
+SALE_OPEN = "SALE_OPEN"              # a product that said "Próximamente" can now be bought or reserved
 RELEASE = "RELEASE"                  # radar: a matching release enters the calendar, is near, or comes out today (with where to buy)
 
 EVENT_TYPES = (RESTOCK, LOCAL_RESTOCK, PREORDER_OPEN, PRICE_DROP, PRICE_THRESHOLD_CROSSED, NEW_SKU,
-               RESTOCK_DATE_CONFIRMED, SOLD_OUT, NEW_LISTING, LISTING_PRICE_DROP, INFO_CHANGE, CANDIDATE_FOUND, NEEDS_HUMAN, MAIL_DEAL, RELEASE)
+               RESTOCK_DATE_CONFIRMED, SOLD_OUT, NEW_LISTING, LISTING_PRICE_DROP, INFO_CHANGE, CANDIDATE_FOUND, NEEDS_HUMAN, MAIL_DEAL, RELEASE, SALE_OPEN)
 
 # Event statuses: pending (waiting revalidation) -> confirmed (alert-worthy) | logged (recorded, below threshold)
 # | dismissed (by the user or by a failed revalidation).

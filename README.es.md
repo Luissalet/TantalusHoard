@@ -18,7 +18,7 @@ Para productos de cartas sigue además el stock tienda a tienda y el calendario 
 
 | Modo | Qué hace | Ejemplo |
 |---|---|---|
-| **availability** | Fichas de producto y búsquedas de tiendas. En cada comprobación guarda el estado de stock (en stock, recogida en tienda, reserva abierta, reposición anunciada, agotado, solo vendedores externos, desconocido), el precio, el vendedor y las evidencias. | ETB del 30.º aniversario de Pokémon en GAME, El Corte Inglés y xtralife; NVIDIA DGX Spark por debajo de 4.800 € |
+| **availability** | Fichas de producto y búsquedas de tiendas. En cada comprobación guarda el estado de stock (en stock, recogida en tienda, reserva abierta, reposición anunciada, próximamente, agotado, solo vendedores externos, desconocido), el precio, el vendedor y las evidencias. | ETB del 30.º aniversario de Pokémon en GAME, El Corte Inglés y xtralife; NVIDIA DGX Spark por debajo de 4.800 € |
 | **secondhand** | Wallapop (API pública de búsqueda) y Facebook Marketplace (tu propia sesión en el perfil del navegador). Cada anuncio se puntúa con un pack de señales explicables. | Libros gratis en lote cerca de Madrid (el antiguo Radar de Libros); ETB precintada a no más de 1,3 × PVP |
 | **information** | Páginas oficiales (diff del texto legible), feeds RSS/Atom y búsquedas de noticias y web (por defecto, los RSS de Google News y Bing News). Solo avisa de novedad material y marca cada una como confirmada, filtración o estimación. | Equipos RTX Spark / N1X de 128 GB en Europa |
 
@@ -42,7 +42,7 @@ Descubrimiento, verificación, detección de cambios y aviso van por separado:
    - Suman: página oficial +45; botón de compra activo o stock positivo en el endpoint +30 (la disponibilidad estructurada también cuenta +30); stock en una tienda objetivo +20; precio y SKU coherentes +10; segunda confirmación +15.
    - Restan: solo fragmento de buscador −25; vendedor externo −35; CAPTCHA o login −20; contradicciones −20; SKU que no coincide −20.
    - Con 75 o más, avisa. Entre 55 y 74, revalida antes. Por debajo de 55, solo registra.
-5. **Eventos.** Solo en transiciones útiles: `RESTOCK`, `LOCAL_RESTOCK`, `PREORDER_OPEN`, `PRICE_DROP`, `PRICE_THRESHOLD_CROSSED`, `NEW_SKU`, `RESTOCK_DATE_CONFIRMED` y `SOLD_OUT`. Para segunda mano y noticias: `NEW_LISTING`, `LISTING_PRICE_DROP`, `INFO_CHANGE` y `CANDIDATE_FOUND`. Un correo de oferta que coincide con una lista de deseados o un vigilante es `MAIL_DEAL`. El radar de agregadores crea `RELEASE` para las fechas de lanzamiento.
+5. **Eventos.** Solo en transiciones útiles: `RESTOCK`, `LOCAL_RESTOCK`, `PREORDER_OPEN`, `SALE_OPEN` (un producto que ponía «Próximamente» ya se puede comprar o reservar), `PRICE_DROP`, `PRICE_THRESHOLD_CROSSED`, `NEW_SKU`, `RESTOCK_DATE_CONFIRMED` y `SOLD_OUT`. Para segunda mano y noticias: `NEW_LISTING`, `LISTING_PRICE_DROP`, `INFO_CHANGE` y `CANDIDATE_FOUND`. Un correo de oferta que coincide con una lista de deseados o un vigilante es `MAIL_DEAL`. El radar de agregadores crea `RELEASE` para las fechas de lanzamiento.
    - Cada evento tiene clave de deduplicado (objetivo, tipo, estado, precio redondeado y tienda) y un enfriamiento que absorbe los vaivenes IN→OUT→IN.
    - Los avisos de prioridad alta se vuelven a comprobar 60 s después, antes de enviar nada.
 6. **Aviso.** Cada evento sale una sola vez por canal.

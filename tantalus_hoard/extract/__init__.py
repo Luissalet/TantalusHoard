@@ -23,7 +23,7 @@ from bs4 import BeautifulSoup
 
 from ..fetch.blocks import HTTP_5XX, detect_block
 from ..llm import LLM
-from ..model import (IN_STOCK, LOCAL_PICKUP, OUT_OF_STOCK, PREORDER, RESTOCK_SCHEDULED, UNKNOWN, Extraction,
+from ..model import (COMING_SOON, IN_STOCK, LOCAL_PICKUP, OUT_OF_STOCK, PREORDER, RESTOCK_SCHEDULED, UNKNOWN, Extraction,
                      FetchResult, Offer)
 from . import jsonld, listing, meta as meta_mod, moonshine, nvidia, phrases, sites, text as text_mod
 from .llm_extract import llm_extract
@@ -261,6 +261,13 @@ def _enrich(offer: Offer, scan: phrases.PhraseScan, meta: meta_mod.PageMeta, ex:
         offer.evidence.extend(scan.evidence[:4])
         if "phrases" not in ex.methods:
             ex.methods.append("phrases")
+    if scan.state == COMING_SOON and offer.availability in (OUT_OF_STOCK, RESTOCK_SCHEDULED):
+        # shops mark unreleased products "OutOfStock" in their structured data; the page itself says "Próximamente"
+        offer.availability = COMING_SOON
+        offer.method = f"{offer.method}+phrases" if offer.method not in ("phrases", "") else "phrases"
+        offer.evidence.append(scan.coming_soon or "próximamente")
+        if scan.preorder_date:
+            offer.extra["release_date"] = scan.preorder_date
     if offer.buy_button is None and scan.buy_button is not None:
         offer.buy_button = scan.buy_button
     if scan.buy_button is not None and offer.method.startswith(("jsonld", "microdata", "opengraph")):

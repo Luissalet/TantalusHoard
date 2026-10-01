@@ -12,7 +12,7 @@ import copy
 from typing import Any
 
 from .model import (LOCAL_RESTOCK, MODE_AVAILABILITY, MODE_INFORMATION, MODE_SECONDHAND, NEW_SKU, PREORDER_OPEN,
-                    PRICE_DROP, PRICE_THRESHOLD_CROSSED, RESTOCK, RESTOCK_DATE_CONFIRMED)
+                    PRICE_DROP, PRICE_THRESHOLD_CROSSED, RESTOCK, RESTOCK_DATE_CONFIRMED, SALE_OPEN)
 
 POKEMON_STORES: list[str] = []  # add the shops you want to prefer
 
@@ -29,7 +29,7 @@ PRESETS: list[dict[str, Any]] = [
                         "exclude": ["funda", "fundas", "protector", "carpeta", "sleeves", "tapete"], "language": "es"},
             "region": "ES-MD",
             "stores": POKEMON_STORES,
-            "policies": {"seller": "retail_only", "alert_on": [RESTOCK, LOCAL_RESTOCK, PREORDER_OPEN, NEW_SKU, RESTOCK_DATE_CONFIRMED],
+            "policies": {"seller": "retail_only", "alert_on": [RESTOCK, LOCAL_RESTOCK, PREORDER_OPEN, SALE_OPEN, NEW_SKU, RESTOCK_DATE_CONFIRMED],
                          "require_confidence": 75, "revalidate_seconds": 60, "cooldown_minutes": 20, "scalper_multiplier": 1.3},
             "discovery": {
                 "queries": ["site:game.es Pokémon 30 aniversario ETB", "site:elcorteingles.es Pokémon 30 aniversario Elite Trainer Box",

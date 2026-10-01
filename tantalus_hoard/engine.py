@@ -19,7 +19,7 @@ from typing import Any, Callable, Optional
 from . import rules
 from .discovery import discover, product_terms, watcher_config
 from .extract import adapter_for, extract, retailer_for_host, source_level_for_host
-from .model import (BUYABLE, CANDIDATE_FOUND, IN_STOCK, INFO_CHANGE, LISTING_PRICE_DROP, LOCAL_PICKUP, MARKETPLACE_ONLY,
+from .model import (BUYABLE, CANDIDATE_FOUND, COMING_SOON, IN_STOCK, INFO_CHANGE, LISTING_PRICE_DROP, LOCAL_PICKUP, MARKETPLACE_ONLY,
                     MODE_AVAILABILITY, MODE_INFORMATION, MODE_SECONDHAND, NEEDS_HUMAN, NEW_LISTING, NEW_SKU,
                     OUT_OF_STOCK, PREORDER, RESTOCK_SCHEDULED, UNAVAILABLE_REGION, UNKNOWN, Extraction, FetchResult, Offer,
                     RawListing)
@@ -30,7 +30,7 @@ from .store import Store, host_of
 
 log = logging.getLogger("tantalus.engine")
 
-STATE_RANK = {IN_STOCK: 7, LOCAL_PICKUP: 6, PREORDER: 5, RESTOCK_SCHEDULED: 4, MARKETPLACE_ONLY: 3, OUT_OF_STOCK: 2,
+STATE_RANK = {IN_STOCK: 7, LOCAL_PICKUP: 6, PREORDER: 5, RESTOCK_SCHEDULED: 4, COMING_SOON: 4, MARKETPLACE_ONLY: 3, OUT_OF_STOCK: 2,
               UNAVAILABLE_REGION: 1, UNKNOWN: 0}
 NEEDS_HUMAN_RETRY_MIN = 180
 MAX_BACKOFF_MIN = 6 * 60
@@ -291,6 +291,8 @@ class Engine:
             return None  # IN -> OUT -> IN flap inside the cooldown window
         require = int(policies.get("require_confidence") or rules.ALERT_THRESHOLD)
         alert_on = set(policies.get("alert_on") or [])
+        if alert_on & {rules.RESTOCK, rules.PREORDER_OPEN}:
+            alert_on.add(rules.SALE_OPEN)  # "on sale now" is a restock / pre-order to a watcher that asked for those
         if kind == rules.SOLD_OUT and policies.get("notify_sold_out"):
             alert_on.add(kind)
         revalidate_s = float(policies.get("revalidate_seconds") or 0)

@@ -18,7 +18,7 @@ Everything runs on your computer: the SQLite store, the scheduler and the browse
 
 | Mode | What it does | Example |
 |---|---|---|
-| **availability** | Product pages and retailer search pages. It records a stock state (in stock, local pickup, pre-order, restock scheduled, sold out, marketplace only, unknown), price, seller and evidence on every check. | Pokémon TCG 30th anniversary Elite Trainer Box at GAME, El Corte Inglés and xtralife; NVIDIA DGX Spark under 4,800 € |
+| **availability** | Product pages and retailer search pages. It records a stock state (in stock, local pickup, pre-order, restock scheduled, coming soon, sold out, marketplace only, unknown), price, seller and evidence on every check. | Pokémon TCG 30th anniversary Elite Trainer Box at GAME, El Corte Inglés and xtralife; NVIDIA DGX Spark under 4,800 € |
 | **secondhand** | Wallapop (public search API) and Facebook Marketplace (your own logged-in browser profile). Listings are scored by a pack of explainable signals. | Free books in bulk near Madrid (the former Radar de Libros); sealed ETB at no more than 1.3 × MSRP |
 | **information** | Official pages (readable-text diff), RSS/Atom feeds, and news and web searches (Google News and Bing News RSS by default). It reports only material news and marks each item as confirmed, leak or estimate. | RTX Spark / N1X 128 GB systems in Europe |
 
@@ -33,7 +33,7 @@ Discovery, verification, change detection and notification are separate steps:
    - Points added: official page +45, active buy control or positive stock endpoint +30 (structured availability also counts +30), stock at a target store +20, coherent price and SKU +10, second confirmation +15.
    - Points removed: search snippet only −25, third-party seller −35, CAPTCHA or login −20, contradictions −20, SKU mismatch −20.
    - At 75 or more the event alerts. From 55 to 74 it is revalidated first. Below 55 it is only logged.
-5. **Events.** They fire only on useful transitions: `RESTOCK`, `LOCAL_RESTOCK`, `PREORDER_OPEN`, `PRICE_DROP`, `PRICE_THRESHOLD_CROSSED`, `NEW_SKU`, `RESTOCK_DATE_CONFIRMED` and `SOLD_OUT`. Second-hand and news events are `NEW_LISTING`, `LISTING_PRICE_DROP`, `INFO_CHANGE` and `CANDIDATE_FOUND`. A sale mail that matches a wishlist or a watcher is `MAIL_DEAL`. The aggregator radar raises `RELEASE` for release dates.
+5. **Events.** They fire only on useful transitions: `RESTOCK`, `LOCAL_RESTOCK`, `PREORDER_OPEN`, `SALE_OPEN` (a product that said "coming soon" can now be bought or reserved), `PRICE_DROP`, `PRICE_THRESHOLD_CROSSED`, `NEW_SKU`, `RESTOCK_DATE_CONFIRMED` and `SOLD_OUT`. Second-hand and news events are `NEW_LISTING`, `LISTING_PRICE_DROP`, `INFO_CHANGE` and `CANDIDATE_FOUND`. A sale mail that matches a wishlist or a watcher is `MAIL_DEAL`. The aggregator radar raises `RELEASE` for release dates.
    - Each event has a dedupe key (target, type, state, rounded price, store) and a cooldown, which absorbs IN→OUT→IN flaps.
    - High-priority events are checked again 60 s later before anything is sent.
 6. **Notification.** Each event is sent once per channel.

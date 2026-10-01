@@ -496,3 +496,21 @@ def test_eci_profile_uses_http_first_and_amazon_too():
     assert sites.needs_browser("https://www.amazon.es/dp/B0F18B4CVX") is False
     assert sites.needs_browser("https://www.game.es/buscar/pokemon") is True
     assert sites.needs_browser("https://www.xtralife.com/x") is True
+
+
+# ------------------------------------------------------------------------------------------------ "Próximamente" (not on sale yet)
+GAME_SOON = ("https://www.game.es/coleccionables/cartas-pokémon/merchandising/"
+             "caja-ultra-premium-de-cartas-pokemon-30-aniversario-castellano-surtido/266954")
+GAME_SOLD = "https://www.game.es/coleccionables/cartas-pokémon/merchandising/mini-lata-de-cartas-pokemon-30-aniversario-castellano-surtido/266948"
+
+
+def test_game_unreleased_product_is_coming_soon_not_sold_out():
+    """GAME marks unreleased products OutOfStock in JSON-LD but shows PRÓXIMAMENTE where the buy button will be."""
+    offer = extract(fr(page("game_product_coming_soon"), GAME_SOON)).primary
+    assert offer.availability == "COMING_SOON" and offer.buy_button is False
+    assert any("PRÓXIMAMENTE" in e.upper() or "PROXIMAMENTE" in e.upper() for e in offer.evidence)
+
+
+def test_game_sold_out_web_product_stays_sold_out():
+    offer = extract(fr(page("game_product_soldout_web"), GAME_SOLD)).primary
+    assert offer.availability == "OUT_OF_STOCK"
