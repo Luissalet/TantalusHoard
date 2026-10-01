@@ -223,3 +223,23 @@ def test_a_page_read_for_the_first_time_after_the_baseline_stays_quiet(radar_svc
     svc.radar.run()                                   # the product page is new: its 12 shops were already there
     assert svc.radar.offers(product_key="30th-anniversary--etb", buyable=True)
     assert not [e for e in events(svc) if e["type"] in ("RESTOCK", "PREORDER_OPEN") and e["data"].get("product_key") == "30th-anniversary--etb"]
+
+
+def test_pages_that_disagree_do_not_make_an_offer_flap(radar_svc):
+    """The release page calls the Amazon invitation "sold out", the product page lists it: rotating which page is read
+    must not raise PREORDER_OPEN again and again."""
+    svc = radar_svc
+    svc.radar.run()                                   # baseline: release page + ETB product page (Amazon invite)
+    amazon = [o for o in svc.radar.offers(store="amazon") if o["product_key"] == "30th-anniversary--etb" and o["extra"].get("invite")]
+    assert amazon and amazon[0]["state"] == PREORDER
+    product = f"{st.NET}/p/30th-anniversary--etb"
+    page = svc.radar.fetcher.pages.pop(product)
+    for _ in range(2):                                # cycles without the product page, then with it again
+        svc.clock_box["now"] += 600
+        svc.radar.run()
+        assert svc.radar.offers(store="amazon", product_key="30th-anniversary--etb", buyable=True)
+    svc.radar.fetcher.pages[product] = page
+    svc.db.execute("UPDATE radar_pages SET last_fetch_ts = 0")
+    svc.clock_box["now"] += 600
+    svc.radar.run()
+    assert not [e for e in events(svc) if e["type"] == "PREORDER_OPEN" and e["data"].get("store_slug") == "amazon"]

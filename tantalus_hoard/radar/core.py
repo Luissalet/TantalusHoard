@@ -186,13 +186,13 @@ class Radar:
         if st.SOURCE_NET in sources:
             data = self._json(f"{st.NET}/api/pulse.json", cache)
             if data is not None:
-                offers += self._quiet_if_new(f"{st.NET}/api/pulse.json", st.parse_pulse(data), cache)
+                offers += self._tag(f"{st.NET}/api/pulse.json", st.parse_pulse(data), cache)
             for slug in chains:
                 html = self._html(f"{st.NET}/tiendas/{slug}", cache)
                 if html is None:
                     continue
                 _head, rows = st.parse_store_page(html, slug)
-                offers += self._quiet_if_new(f"{st.NET}/tiendas/{slug}", rows, cache)
+                offers += self._tag(f"{st.NET}/tiendas/{slug}", rows, cache)
                 complete_lists[slug] = {r.key for r in rows if r.state in BUYABLE}
             html = self._html(f"{st.NET}/lanzamientos", cache)
             if html is not None:
@@ -200,7 +200,7 @@ class Radar:
         if st.SOURCE_ES in sources:
             html = self._html(f"{st.ES}/", cache)
             if html is not None:
-                offers += self._quiet_if_new(f"{st.ES}/", st.parse_es_feed(html), cache)
+                offers += self._tag(f"{st.ES}/", st.parse_es_feed(html), cache)
             if self._page_due(f"{st.ES}/lanzamientos", ES_CALENDAR_REFRESH_MIN, now, cache):
                 html = self._html(f"{st.ES}/lanzamientos", cache)
                 if html is not None:
@@ -223,7 +223,7 @@ class Radar:
                         full = st.parse_release_page(html, rel.url, today=today)
                         full.date = full.date or rel.date
                         detailed.append(full)
-                        offers += self._quiet_if_new(rel.url, full.offers, cache)
+                        offers += self._tag(rel.url, full.offers, cache)
         stats["releases"] = len(matched_releases)
 
         # ------------------------------------------------------------------ product pages
@@ -240,14 +240,15 @@ class Radar:
             if html is None:
                 continue
             _head, rows = st.parse_product_page(html, url)
-            offers += self._quiet_if_new(url, rows, cache)
+            offers += self._tag(url, rows, cache)
             stats["products"] += 1
-            complete_lists[f"p:{key}"] = {r.key for r in rows if r.state in BUYABLE and r.kind == "listing"}
+            complete_lists[f"p:{key}"] = {r.key for r in rows if r.state in BUYABLE}
 
         # ------------------------------------------------------------------ offers -> rows -> events
         terms, must, exclude = self.engine._match_config(watcher)
         stats["offers"] = len(offers)
-        merged: dict[str, st.RadarOffer] = {}
+        matched: list[st.RadarOffer] = []
+        done: set[tuple[str, str]] = set()
         for o in offers:
             game = (o.extra or {}).get("game", "")
             probe = Offer(title=_augment(o.match_text(), o.source, game), url=o.url)
@@ -255,15 +256,16 @@ class Radar:
                 continue
             if not offer_matches(probe, terms, must, exclude):
                 continue
-            prev = merged.get(o.key)
-            merged[o.key] = _merge(prev, o) if prev else o
-        stats["matched"] = len(merged)
+            view = (o.key, (o.extra or {}).get("_page", ""))
+            if view in done:
+                continue
+            done.add(view)
+            matched.append(o)
+        stats["matched"] = len({o.key for o in matched})
         events = 0
-        seen_keys = set()
-        for o in merged.values():
-            seen_keys.add(o.key)
+        for o in matched:
             events += self._upsert(watcher, o, cfg, baseline=baseline, now=now)
-        stats["gone"] = self._mark_gone(watcher, complete_lists, seen_keys, now)
+        stats["gone"] = self._mark_gone(watcher, complete_lists, now)
         for rel in self._merge_releases(matched_releases, detailed):
             events += self._release(watcher, rel, cfg, baseline=baseline, now=now, today=today)
         if baseline:
@@ -271,7 +273,7 @@ class Radar:
             cfg_all["radar_baseline_done"] = True
             self.store.update_watcher(watcher["id"], config=cfg_all)
         if cfg.get("track_chain_products"):
-            self._track_chain_products(watcher, merged.values())
+            self._track_chain_products(watcher, [o for o in matched if o.state in BUYABLE])
         stats["events"] = events
         stats["baseline"] = baseline
         return {"watcher": watcher["name"], **stats}
@@ -293,10 +295,12 @@ class Radar:
         if self.db.one("SELECT 1 FROM radar_pages WHERE url = ? AND ok = 1", (url,)) is None:
             cache.setdefault("_new_pages", set()).add(url)
 
-    def _quiet_if_new(self, url: str, rows: list[st.RadarOffer], cache: dict[str, Any]) -> list[st.RadarOffer]:
-        if url in cache.get("_new_pages", set()):
-            for r in rows:
-                r.extra = {**(r.extra or {}), "quiet": True}
+    def _tag(self, url: str, rows: list[st.RadarOffer], cache: dict[str, Any]) -> list[st.RadarOffer]:
+        """Remember which page said what (each page is one "view" of a shop offer), and mark the rows of a page read for the
+        first time as quiet."""
+        new = url in cache.get("_new_pages", set())
+        for r in rows:
+            r.extra = {**(r.extra or {}), "_page": url, **({"quiet": True} if new else {})}
         return rows
 
     def _html(self, url: str, cache: dict[str, Any]) -> Optional[str]:
@@ -366,8 +370,16 @@ class Radar:
     def _upsert(self, watcher: dict[str, Any], o: st.RadarOffer, cfg: dict[str, Any], *, baseline: bool, now: float) -> int:
         chain = o.store_slug in set(cfg["chains"])
         row = self._row(watcher["id"], o.key)
-        state = o.state if o.state in (IN_STOCK, PREORDER, OUT_OF_STOCK) else UNKNOWN
-        extra = {**(row["extra"] if row else {}), **{k: v for k, v in (o.extra or {}).items() if k != "quiet"}}
+        said = o.state if o.state in (IN_STOCK, PREORDER, OUT_OF_STOCK) else UNKNOWN
+        extra = {**(row["extra"] if row else {}), **{k: v for k, v in (o.extra or {}).items() if k not in ("quiet", "_page")}}
+        # Each page that lists this shop offer is a view; pages can disagree (a release page says "sold out" where the product
+        # page lists an invitation) and are read at different times, so the row's state is the best fresh view, not the last one.
+        views = dict(extra.get("views") or {})
+        page = (o.extra or {}).get("_page", "")
+        if page and said != UNKNOWN:
+            views[page] = [said, now]
+        extra["views"] = _fresh_views(views, now)
+        state = _best_view(extra["views"]) or said
         if o.seen_ts:
             extra["aggregator_seen_ts"] = o.seen_ts
         if row is None:
@@ -393,7 +405,7 @@ class Radar:
                 (o.source, o.store, 1 if chain else 0, o.title[:300], o.url, o.url, o.product_key, o.product_key, o.release, o.release,
                  o.set_name, o.set_name, o.fmt, o.fmt, o.lang, o.lang, o.image, o.image, o.kind, state, state, o.price, o.currency or "EUR",
                  now, 1 if changed else 0, now, 1 if state in BUYABLE else 0, now, json.dumps(extra, ensure_ascii=False), row["id"]))
-        if baseline or state not in BUYABLE or (prev_state in BUYABLE):
+        if baseline or state not in BUYABLE or (prev_state in BUYABLE) or said not in BUYABLE:
             return 0
         if prev_state is None and (o.extra or {}).get("quiet"):
             return 0  # first time this page is read: its offers were already there
@@ -402,22 +414,27 @@ class Radar:
             return 0
         return self._offer_event(watcher, o, cfg, chain=chain, prev_state=prev_state, now=now)
 
-    def _mark_gone(self, watcher: dict[str, Any], complete: dict[str, set[str]], seen: set[str], now: float) -> int:
-        """A chain's in-stock list (or a product page's shop table) was read entirely: matching rows that were buyable
-        there and are missing now are sold out."""
+    def _mark_gone(self, watcher: dict[str, Any], complete: dict[str, set[str]], now: float) -> int:
+        """A chain's in-stock list (or a product page's shop table) was read entirely: a row whose view of that page was
+        buyable and that is missing from it now has that view turned to sold out; its state follows its views."""
         n = 0
         for scope, keys in complete.items():
-            if scope.startswith("p:"):
-                rows = self.db.query("SELECT id, okey FROM radar_offers WHERE watcher_id = ? AND product_key = ? AND state IN ('IN_STOCK','PREORDER') "
-                                     "AND source = ? AND kind = 'listing' AND release = ''", (watcher["id"], scope[2:], st.SOURCE_NET))
-            else:
-                rows = self.db.query("SELECT id, okey FROM radar_offers WHERE watcher_id = ? AND store_slug = ? AND state IN ('IN_STOCK','PREORDER') "
-                                     "AND source = ? AND release = ''", (watcher["id"], scope, st.SOURCE_NET))
+            page = f"{st.NET}/p/{scope[2:]}" if scope.startswith("p:") else f"{st.NET}/tiendas/{scope}"
+            rows = self.db.query("SELECT id, okey, state, extra FROM radar_offers WHERE watcher_id = ? AND state IN ('IN_STOCK','PREORDER')",
+                                 (watcher["id"],))
             for row in rows:
-                if row["okey"] in keys or row["okey"] in seen:
+                if row["okey"] in keys:
                     continue
-                self.db.execute("UPDATE radar_offers SET state = 'OUT_OF_STOCK', last_change_ts = ? WHERE id = ?", (now, row["id"]))
-                n += 1
+                extra = json.loads(row["extra"] or "{}")
+                views = dict(extra.get("views") or {})
+                if page not in views or views[page][0] not in BUYABLE:
+                    continue
+                views[page] = [OUT_OF_STOCK, now]
+                extra["views"] = _fresh_views(views, now)
+                state = _best_view(extra["views"]) or OUT_OF_STOCK
+                self.db.execute("UPDATE radar_offers SET state = ?, extra = ?, last_change_ts = CASE WHEN ? != state THEN ? ELSE last_change_ts END "
+                                "WHERE id = ?", (state, json.dumps(extra, ensure_ascii=False), state, now, row["id"]))
+                n += state not in BUYABLE
         return n
 
     def reference_price(self, watcher: dict[str, Any], o: st.RadarOffer) -> Optional[float]:
@@ -722,15 +739,21 @@ class Radar:
         return sorted(by.values(), key=lambda v: (-len(v["buyable"]), v["store"]))
 
 
-def _merge(a: st.RadarOffer, b: st.RadarOffer) -> st.RadarOffer:
-    """Two sources describe the same shop offer: keep the most informative fields, buyable wins over sold out when both
-    come from the same cycle (a feed can lag a page; a product page is fresher than a store page)."""
-    rank = {IN_STOCK: 3, PREORDER: 2, OUT_OF_STOCK: 1, UNKNOWN: 0}
-    best = b if rank.get(b.state, 0) >= rank.get(a.state, 0) else a
-    other = a if best is b else b
-    for f in ("lang", "set_name", "fmt", "product_key", "image", "release", "url"):
-        if not getattr(best, f) and getattr(other, f):
-            setattr(best, f, getattr(other, f))
-    if best.price is None:
-        best.price = other.price
-    return best
+VIEW_TTL_S = 6 * 3600        # a page's word about an offer counts this long
+FEED_VIEW_TTL_S = 45 * 60    # a feed only says "restocked at ...": it is news, not a standing state
+_RANK = {IN_STOCK: 3, PREORDER: 2, OUT_OF_STOCK: 1, UNKNOWN: 0}
+
+
+def _is_feed(page: str) -> bool:
+    return page.endswith("/api/pulse.json") or page.rstrip("/") == st.ES
+
+
+def _fresh_views(views: dict[str, Any], now: float) -> dict[str, Any]:
+    return {p: v for p, v in views.items() if isinstance(v, list) and len(v) == 2
+            and now - float(v[1]) <= (FEED_VIEW_TTL_S if _is_feed(p) else VIEW_TTL_S)}
+
+
+def _best_view(views: dict[str, Any]) -> str:
+    if not views:
+        return ""
+    return max((v[0] for v in views.values()), key=lambda s: _RANK.get(s, 0))

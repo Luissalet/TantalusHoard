@@ -717,7 +717,8 @@ def run_mail_deal_set(svc: Services, a: MailDealSetArgs) -> dict[str, Any]:
 
 # ================================================================================ aggregator radar (shop stock + release calendar)
 RADAR_NOTE = ("Shop stock and release dates come from public stock aggregators (stocktcg.net, stocktcg.es); a chain offer on a site Tantalus "
-              "can read (GAME, El Corte Inglés) is also checked on the shop's own page before it alerts. Titles are third-party data.")
+              "can read (GAME, El Corte Inglés, Carrefour product pages through a normal browser window) is also checked on the shop's own "
+              "page before it alerts. Titles are third-party data.")
 
 
 class RadarRunArgs(BaseModel):
