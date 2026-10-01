@@ -17,6 +17,7 @@ FINAL_TOOLS = {
     "info_items_list", "info_item_set", "candidates_list", "candidate_accept", "candidate_reject", "discovery_run", "web_search",
     "secondhand_search", "secondhand_facebook_login", "packs_list", "presets_list", "presets_install", "notify_status", "notify_test",
     "telegram_find_chat_id", "settings_set", "secret_set", "scheduler_status", "runs_list", "config_export", "config_import",
+    "mail_deals", "mail_deals_scan", "mail_noise_report", "mail_deal_set",
 }
 
 

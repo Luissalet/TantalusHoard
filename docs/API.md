@@ -237,7 +237,7 @@ Annotations: readOnlyHint, idempotentHint.
 |---|---|---|
 | `watcher_id` (string/null) | no |  |
 | `target_id` (string/null) | no |  |
-| `types` (array/null) | no | RESTOCK, LOCAL_RESTOCK, PREORDER_OPEN, PRICE_DROP, PRICE_THRESHOLD_CROSSED, NEW_SKU, RESTOCK_DATE_CONFIRMED, SOLD_OUT, NEW_LISTING, LISTING_PRICE_DROP, INFO_CHANGE, CANDIDATE_FOUND, NEEDS_HUMAN |
+| `types` (array/null) | no | RESTOCK, LOCAL_RESTOCK, PREORDER_OPEN, PRICE_DROP, PRICE_THRESHOLD_CROSSED, NEW_SKU, RESTOCK_DATE_CONFIRMED, SOLD_OUT, NEW_LISTING, LISTING_PRICE_DROP, INFO_CHANGE, CANDIDATE_FOUND, NEEDS_HUMAN, MAIL_DEAL |
 | `statuses` (array/null) | no |  |
 | `unseen_only` (boolean) | no |  |
 | `limit` (integer) | no |  |
@@ -453,7 +453,7 @@ Annotations: readOnlyHint, idempotentHint, openWorldHint.
 
 Change settings: channels, ntfy server, e-mail backend and Faustus folder, language, model, pause. Ajustes.
 
-Keys: notify.<channel>.enabled|min_severity, notify.ntfy.server, notify.email.backend|faustus_dir|faustus_owner, notify.language, llm.enabled, scheduler.paused.
+Keys: notify.<channel>.enabled|min_severity, notify.ntfy.server, notify.email.backend|faustus_dir|faustus_owner, notify.language, llm.enabled, scheduler.paused, mail.deals.enabled|interval_min|history_days|ttl_days|stores|domains|gamerhoard_file|wishlist, mail.noise.days.
 
 Annotations: none.
 
@@ -504,6 +504,61 @@ Annotations: none.
 | Argument | Required | Description |
 |---|---|---|
 | `data` (object) | yes | The object config_export returns: {tantalus: 1, watchers: [...]} |
+
+## `mail_deals`
+
+Sale mails of game and book stores found in the mailbox, with wishlist matches. Ofertas del correo.
+
+Read from the Faustus mailbox (read-only), parsed into deals: store, title, discount, price, end date, link, and whether it matches a wishlist (game library, own list, the store's wishlist mails) or a watcher. Only matches notify. Sinónimos: ofertas de Steam, GOG, libros, rebajas del correo, lista de deseados.
+
+Annotations: readOnlyHint, idempotentHint.
+
+| Argument | Required | Description |
+|---|---|---|
+| `status` (active \| expired \| dismissed \| all) | no |  |
+| `matched_only` (boolean) | no | Only deals that match a wishlist or a watcher. |
+| `store` (string) | no | Store id: steam, gog, game, epic, bibliostock, casadellibro, fnac... |
+| `query` (string) | no | Text in the title, the item titles or the subject. |
+| `limit` (integer) | no |  |
+
+## `mail_deals_scan`
+
+Read new sale mails now (read-only) and match them to wishlists. Escanear ofertas del correo.
+
+The first scan is quiet (no alerts); later matches notify once. rematch_only re-checks stored deals; rebuild re-reads everything. Sinónimos: buscar ofertas en el correo, actualizar ofertas, revisar correo de tiendas.
+
+Annotations: openWorldHint.
+
+| Argument | Required | Description |
+|---|---|---|
+| `days` (integer/null) | no | How far back to read (default: setting mail.deals.history_days). |
+| `rematch_only` (boolean) | no | Do not read the mailbox: only check the stored deals against the lists again. |
+| `rebuild` (boolean) | no | Forget the stored deals and read the mailbox again with the current parser (quiet, no alerts). |
+
+## `mail_noise_report`
+
+Which sender domains flood the mailbox with promotions, and who reads them. Informe de ruido del correo.
+
+Read-only: counts per domain, share, Gmail category, unsubscribe link or address (never opened), last mail, and whether a Hoard uses that sender. Nothing is unsubscribed, moved or deleted. Sinónimos: spam, newsletters, darse de baja, promociones, limpieza del correo.
+
+Annotations: readOnlyHint, idempotentHint, openWorldHint.
+
+| Argument | Required | Description |
+|---|---|---|
+| `days` (integer/null) | no | Window in days (default: setting mail.noise.days). |
+| `top` (integer) | no |  |
+| `refresh` (boolean) | no | Ignore the ten-minute cache and read the headers again. |
+
+## `mail_deal_set`
+
+Dismiss a mail deal or bring it back. Descartar o restaurar una oferta del correo.
+
+Annotations: none.
+
+| Argument | Required | Description |
+|---|---|---|
+| `deal_id` (integer) | yes |  |
+| `status` (active \| dismissed) | yes |  |
 
 ## REST routes for the UI
 

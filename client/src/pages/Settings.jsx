@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { api } from "../api.js";
 import { useApp } from "../context.js";
-import { Busy, Chip, Empty, ErrorBox, Field, Icon, Rel, Section, Switch, useBusy, useLoad } from "../components/ui.jsx";
+import { Busy, Check, Chip, Empty, ErrorBox, Field, Icon, Rel, Section, Switch, useBusy, useLoad } from "../components/ui.jsx";
 import { clock, num, shortClock } from "../format.js";
 import { CHANNELS, SEVERITIES } from "../meta.js";
 
@@ -213,6 +213,52 @@ function EmailBackend({ info, settings, setSetting, busy }) {
   );
 }
 
+// Mail deals and the noise report: which stores count, the extra sender domains, the lists a deal is compared with, and the cadence.
+function MailSettings({ settings, onChanged }) {
+  const { t, notify } = useApp();
+  const [busy, run] = useBusy();
+  const info = useLoad(() => api.call("mail_deals", { limit: 1 }), []);
+  const stores = info.data?.mail?.available_stores || [];
+  const picked = (settings["mail.deals.stores"] || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const [wishlist, setWishlist] = useState(settings["mail.deals.wishlist"] || "");
+  const save = (values) => run("mail", async () => {
+    await api.call("settings_set", { values });
+    notify(t("saved"));
+    await onChanged();
+    await info.reload();
+  });
+  const toggleStore = (id) => save({ "mail.deals.stores": (picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id]).join(", ") });
+  const numbers = [["mail.deals.interval_min", "mail_set_interval"], ["mail.deals.history_days", "mail_set_history"], ["mail.deals.ttl_days", "mail_set_ttl"], ["mail.noise.days", "mail_set_noise_days"]];
+  return (
+    <div className="panel space-y-4">
+      <p className="help">{t("mail_set_hint")}</p>
+      <div className="flex items-center gap-3">
+        <Switch checked={settings["mail.deals.enabled"] === "1"} disabled={busy.mail} onChange={(v) => save({ "mail.deals.enabled": v ? "1" : "0" })} label={t("mail_set_enabled")} />
+        <span>{t("mail_set_enabled")}</span>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {numbers.map(([key, label]) => (
+          <TextSetting key={key} label={t(label)} value={settings[key]} onSave={(v) => save({ [key]: v })} busy={busy.mail} className="max-w-[200px]" />
+        ))}
+      </div>
+      <div>
+        <span className="label">{t("mail_set_stores")}</span>
+        <div className="flex flex-wrap gap-x-4 gap-y-1.5" role="group" aria-label={t("mail_set_stores")}>
+          {stores.map((s) => <Check key={s.id} checked={picked.includes(s.id)} disabled={busy.mail} onChange={() => toggleStore(s.id)}>{s.name}</Check>)}
+        </div>
+      </div>
+      <TextSetting label={t("mail_set_domains")} value={settings["mail.deals.domains"]} onSave={(v) => save({ "mail.deals.domains": v })} busy={busy.mail} className="max-w-[640px]" />
+      <TextSetting label={t("mail_set_gamefile")} value={settings["mail.deals.gamerhoard_file"]} onSave={(v) => save({ "mail.deals.gamerhoard_file": v })} busy={busy.mail} className="max-w-[640px]" />
+      <div className="space-y-2">
+        <Field label={t("mail_set_wishlist")}>
+          <textarea className="field" rows={5} value={wishlist} onChange={(e) => setWishlist(e.target.value)} />
+        </Field>
+        <Busy className="btn btn-sm" busy={busy.mail} disabled={wishlist.trim() === (settings["mail.deals.wishlist"] || "").trim()} onClick={() => save({ "mail.deals.wishlist": wishlist.trim() })}>{t("save")}</Busy>
+      </div>
+    </div>
+  );
+}
+
 export default function Settings() {
   const { t, lang, setLang, health, refreshDash, refreshHealth, notify } = useApp();
   const [busy, run] = useBusy();
@@ -281,6 +327,10 @@ export default function Settings() {
               testResult={tests[c]} onTest={test} testing={busy[`test-${c}`]} />
           ))}
         </div>
+      </Section>
+
+      <Section id="sec-mail" title={t("sec_mail")}>
+        <MailSettings settings={settings} onChanged={reloadAll} />
       </Section>
 
       <Section id="sec-search-keys" title={t("sec_search_keys")}>

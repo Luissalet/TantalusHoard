@@ -38,9 +38,10 @@ LISTING_PRICE_DROP = "LISTING_PRICE_DROP"
 INFO_CHANGE = "INFO_CHANGE"          # information sentry: material news
 CANDIDATE_FOUND = "CANDIDATE_FOUND"  # discovery: a new URL proposed as target
 NEEDS_HUMAN = "NEEDS_HUMAN"          # a target is blocked behind CAPTCHA / login
+MAIL_DEAL = "MAIL_DEAL"              # a sale mail from a game store / book retailer that matches a wishlist or a watch
 
 EVENT_TYPES = (RESTOCK, LOCAL_RESTOCK, PREORDER_OPEN, PRICE_DROP, PRICE_THRESHOLD_CROSSED, NEW_SKU,
-               RESTOCK_DATE_CONFIRMED, SOLD_OUT, NEW_LISTING, LISTING_PRICE_DROP, INFO_CHANGE, CANDIDATE_FOUND, NEEDS_HUMAN)
+               RESTOCK_DATE_CONFIRMED, SOLD_OUT, NEW_LISTING, LISTING_PRICE_DROP, INFO_CHANGE, CANDIDATE_FOUND, NEEDS_HUMAN, MAIL_DEAL)
 
 # Event statuses: pending (waiting revalidation) -> confirmed (alert-worthy) | logged (recorded, below threshold)
 # | dismissed (by the user or by a failed revalidation).

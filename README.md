@@ -8,6 +8,8 @@
 
 Tantalus's Hoard is a local product watcher. It tells you when a product comes back in stock, when its price falls or crosses your limit, when pre-orders open or a new SKU appears at a retailer. It also finds second-hand bargains on Wallapop or Facebook Marketplace and flags material news from official pages, feeds and web searches. The dashboard opens on what is new since your last visit. Alerts go out as Windows notifications, family bus events, ntfy pushes to your phone, Telegram messages or email. Every function is also an MCP tool for assistants.
 
+It also reads the sale mails that game stores and book retailers send to your mailbox (through the account configured in Faustus), keeps them as "mail deals", and alerts you only when one matches a wishlist or a watcher. A read-only report shows which senders fill the mailbox with promotions.
+
 Everything runs on your computer: the SQLite store, the scheduler and the browser profile. Nothing leaves the machine except the page requests themselves and the notifications you enable.
 
 ## What it watches
@@ -29,7 +31,7 @@ Discovery, verification, change detection and notification are separate steps:
    - Points added: official page +45, active buy control or positive stock endpoint +30 (structured availability also counts +30), stock at a target store +20, coherent price and SKU +10, second confirmation +15.
    - Points removed: search snippet only −25, third-party seller −35, CAPTCHA or login −20, contradictions −20, SKU mismatch −20.
    - At 75 or more the event alerts. From 55 to 74 it is revalidated first. Below 55 it is only logged.
-5. **Events.** They fire only on useful transitions: `RESTOCK`, `LOCAL_RESTOCK`, `PREORDER_OPEN`, `PRICE_DROP`, `PRICE_THRESHOLD_CROSSED`, `NEW_SKU`, `RESTOCK_DATE_CONFIRMED` and `SOLD_OUT`. Second-hand and news events are `NEW_LISTING`, `LISTING_PRICE_DROP`, `INFO_CHANGE` and `CANDIDATE_FOUND`.
+5. **Events.** They fire only on useful transitions: `RESTOCK`, `LOCAL_RESTOCK`, `PREORDER_OPEN`, `PRICE_DROP`, `PRICE_THRESHOLD_CROSSED`, `NEW_SKU`, `RESTOCK_DATE_CONFIRMED` and `SOLD_OUT`. Second-hand and news events are `NEW_LISTING`, `LISTING_PRICE_DROP`, `INFO_CHANGE` and `CANDIDATE_FOUND`. A sale mail that matches a wishlist or a watcher is `MAIL_DEAL`.
    - Each event has a dedupe key (target, type, state, rounded price, store) and a cooldown, which absorbs IN→OUT→IN flaps.
    - High-priority events are checked again 60 s later before anything is sent.
 6. **Notification.** Each event is sent once per channel.
@@ -67,6 +69,16 @@ The first start installs seven watchers:
 
 Edit, disable or delete any of them. `config_export` and `config_import` move the whole setup as data.
 
+## Mail deals and the noise report
+
+The **Correo** page has two tabs, **Ofertas** and **Ruido**. Both read the mailbox through the account configured in Faustus: Tantalus runs a small reader (`tantalus_hoard/mail/faustus_reader.py`) under Faustus's own Python, so the mail password never reaches Tantalus. The reader opens folders read-only and fetches with `BODY.PEEK`. There is no code anywhere in Tantalus that sends, moves, flags, labels, archives, unsubscribes or deletes a message, a test checks that the reader has none, and no mail link is ever fetched.
+
+- **Deals.** Every few hours (`mail.deals.interval_min`, default 180) the scheduler reads new mails from the stores (Steam, GOG, GAME, Epic, Humble, Fanatical, Green Man Gaming, Instant Gaming, xtralife, Bibliostock, Casa del Libro, Agapea, Planeta de Libros, Book Depository, Fnac, plus any sender domain you add). A parser turns each sale mail into rows: store, title, discount (or "up to" for ranges), old and new price, end date, link. A store that mails "an item of your wishlist is on sale" gives one row per item; any other sale mail gives one campaign row with the item titles from its images. A deal ends at the sale's end date, or `mail.deals.ttl_days` (7) after the mail when it states none.
+- **Who it alerts.** A deal is checked against: the game library of the sibling game-collection app (backlog games owned on no platform, or tagged `wishlist`; owned games never alert), your own list in Settings (`mail.deals.wishlist`), the store's own wishlist mails, and your enabled watchers (same product terms). Only a match raises a `MAIL_DEAL` event, once, and only if the mail is at most three days old. The first scan is quiet: it fills the table and sends nothing.
+- **Noise report.** Per sender domain over the last `mail.noise.days` (30): mail count and share, Gmail category, whether an unsubscribe link or address exists (shown as text, never opened), the last mail, and which Hoard reads that sender (Ledger for payments, Phileas for shipments, Kafka for paperwork, JobHunter for jobs, Tantalus for store deals). Promotional senders that no Hoard reads are listed first as the clean-up candidates. It changes nothing.
+
+Settings: `mail.deals.enabled`, `mail.deals.interval_min`, `mail.deals.history_days`, `mail.deals.ttl_days`, `mail.deals.stores`, `mail.deals.domains`, `mail.deals.gamerhoard_file`, `mail.deals.wishlist`, `mail.noise.days`.
+
 ## Run
 
 ```sh
@@ -81,11 +93,11 @@ Environment: `TANTALUS_PORT` (5197), `TANTALUS_DATA_DIR`, `TANTALUS_SCHEDULER=0`
 
 ## Assistants (MCP)
 
-`python mcp_server.py` is a stdio bridge. It never opens the database: it proxies to the running app and starts it when needed. There are 44 tools. Start with `tantalus_overview`. For one-off questions use `inspect_url`, `secondhand_search` and `web_search`. To set up watching use `watcher_create`, `target_add`, `discovery_run` and `candidate_accept`. [docs/API.md](docs/API.md) lists every tool:
+`python mcp_server.py` is a stdio bridge. It never opens the database: it proxies to the running app and starts it when needed. There are 48 tools. Start with `tantalus_overview`. For one-off questions use `inspect_url`, `secondhand_search` and `web_search`. To set up watching use `watcher_create`, `target_add`, `discovery_run` and `candidate_accept`. [docs/API.md](docs/API.md) lists every tool:
 
-`tantalus_overview`, `tantalus_status`, `watcher_list`, `watcher_get`, `watcher_create`, `watcher_update`, `watcher_delete`, `watcher_run`, `watcher_rescore`, `target_add`, `target_list`, `target_get`, `target_update`, `target_delete`, `target_check`, `target_resolve`, `inspect_url`, `events_list`, `events_mark_seen`, `event_dismiss`, `event_notify`, `listings_list`, `listing_set`, `info_items_list`, `info_item_set`, `candidates_list`, `candidate_accept`, `candidate_reject`, `discovery_run`, `web_search`, `secondhand_search`, `secondhand_facebook_login`, `packs_list`, `presets_list`, `presets_install`, `notify_status`, `notify_test`, `telegram_find_chat_id`, `settings_set`, `secret_set`, `scheduler_status`, `runs_list`, `config_export`, `config_import`.
+`tantalus_overview`, `tantalus_status`, `watcher_list`, `watcher_get`, `watcher_create`, `watcher_update`, `watcher_delete`, `watcher_run`, `watcher_rescore`, `target_add`, `target_list`, `target_get`, `target_update`, `target_delete`, `target_check`, `target_resolve`, `inspect_url`, `events_list`, `events_mark_seen`, `event_dismiss`, `event_notify`, `listings_list`, `listing_set`, `info_items_list`, `info_item_set`, `candidates_list`, `candidate_accept`, `candidate_reject`, `discovery_run`, `web_search`, `secondhand_search`, `secondhand_facebook_login`, `packs_list`, `presets_list`, `presets_install`, `notify_status`, `notify_test`, `telegram_find_chat_id`, `settings_set`, `secret_set`, `scheduler_status`, `runs_list`, `config_export`, `config_import`, `mail_deals`, `mail_deals_scan`, `mail_noise_report`, `mail_deal_set`.
 
-Page text, titles and snippets are third-party data. Tool results say so, and the optional model receives them wrapped as untrusted content.
+Page text, titles, snippets and mail subjects are third-party data. Tool results say so, and the optional model receives them wrapped as untrusted content.
 
 ## Limits
 
@@ -93,6 +105,7 @@ Page text, titles and snippets are third-party data. Tool results say so, and th
 - **Local stock.** Stock at a specific store is only read when the retailer shows it on the page. The store list of a watcher is otherwise a preference.
 - **DGX Spark.** The NVIDIA product API does not list DGX Spark today, so that target stays "unknown" until it does.
 - **Web search.** Keyless web search is unreliable from a script: DuckDuckGo's HTML endpoint answers a bot check after a few queries and Bing degrades long queries. News searches use the Google News and Bing News RSS feeds, which work well. For products, watching the retailers' own search pages is the dependable way to discover new SKUs. A SearXNG instance or a Brave key adds proper web engines.
+- **Mail deals.** They need Faustus with a mail account. Parsing is by rules on the mails' text: a store that changes its mail layout can yield a campaign row instead of per-item rows. The book-collection app is a cloud database with no local file, so book wishlists come only from your own list in Settings. The game library file is read from `mail.deals.gamerhoard_file`, `GAMERHOARD_DATA_FILE` or `~/.gamerhoard/library.json`; without it only your own list, the store wishlist mails and the watchers match.
 - **Facebook.** Facebook's terms forbid automated access. The Marketplace source is off by default and uses your own session in the app's browser profile.
 
 ## Tests

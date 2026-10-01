@@ -247,6 +247,49 @@ MIGRATIONS: list[str] = [
     );
     CREATE UNIQUE INDEX candidates_url ON candidates(watcher_id, url);
     """,
+    # 3: sale mails read from the mailbox (deals) and the ids of the mails already looked at
+    """
+    CREATE TABLE mail_deals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id TEXT NOT NULL,
+      item_key TEXT NOT NULL,
+      store_id TEXT NOT NULL DEFAULT '',
+      store TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'campaign',
+      title TEXT NOT NULL DEFAULT '',
+      titles TEXT NOT NULL DEFAULT '[]',
+      discount_pct INTEGER,
+      up_to INTEGER NOT NULL DEFAULT 0,
+      price REAL,
+      old_price REAL,
+      currency TEXT NOT NULL DEFAULT '',
+      ends_ts REAL,
+      ends_known INTEGER NOT NULL DEFAULT 0,
+      expires_ts REAL,
+      url TEXT NOT NULL DEFAULT '',
+      subject TEXT NOT NULL DEFAULT '',
+      sender_domain TEXT NOT NULL DEFAULT '',
+      mail_ts REAL,
+      first_seen_ts REAL NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      wishlist INTEGER NOT NULL DEFAULT 0,
+      matched INTEGER NOT NULL DEFAULT 0,
+      match_source TEXT NOT NULL DEFAULT '',
+      match_label TEXT NOT NULL DEFAULT '',
+      owned INTEGER NOT NULL DEFAULT 0,
+      quiet INTEGER NOT NULL DEFAULT 0,
+      notified INTEGER NOT NULL DEFAULT 0,
+      event_id TEXT NOT NULL DEFAULT '',
+      UNIQUE(message_id, item_key)
+    );
+    CREATE INDEX mail_deals_status ON mail_deals(status, expires_ts);
+    CREATE INDEX mail_deals_matched ON mail_deals(matched, mail_ts);
+    CREATE TABLE mail_seen (
+      message_id TEXT PRIMARY KEY,
+      seen_ts REAL NOT NULL,
+      deals INTEGER NOT NULL DEFAULT 0
+    );
+    """,
 ]
 
 

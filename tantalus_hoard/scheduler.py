@@ -1,7 +1,9 @@
 """Background scheduler: two worker lanes, each running one job at a time.
 
 - ``checks`` lane: revalidations and product-target checks (short, time-sensitive).
-- ``sweeps`` lane: second-hand sweeps, information sweeps and discovery (long: many queries, polite pauses).
+- ``sweeps`` lane: second-hand sweeps, information sweeps, discovery and the extra kinds (long: many queries, polite pauses).
+
+Extra kinds are registered by the caller as ``{kind: (due(now) -> bool, run(ref) -> Any)}``; the mailbox scan is one of them.
 
 A long Wallapop sweep therefore never delays a restock check. Per-host politeness lives in the fetcher (one
 request at a time per host, minimum interval), so the two lanes can run side by side safely. A job that raises is
@@ -27,7 +29,7 @@ MIN_WATCHER_INTERVAL_MIN = 10  # floor inherited from Radar de Libros: never ham
 
 @dataclass
 class Job:
-    kind: str                 # check | revalidate | secondhand | information | discovery
+    kind: str                 # check | revalidate | secondhand | information | discovery | (an extra kind such as mail_deals)
     ref: str
     reason: str = "schedule"
     done: threading.Event = field(default_factory=threading.Event)
@@ -44,7 +46,9 @@ def lane_of(kind: str) -> str:
 
 class Scheduler:
     def __init__(self, engine: Any, store: Any, *, clock: Callable[[], float] = time.time, enabled: bool = True,
-                 paused: Callable[[], bool] = lambda: False):
+                 paused: Callable[[], bool] = lambda: False,
+                 extra: Optional[dict[str, tuple[Callable[[float], bool], Callable[[str], Any]]]] = None):
+        self.extra = dict(extra or {})
         self.engine = engine
         self.store = store
         self.clock = clock
@@ -126,6 +130,8 @@ class Scheduler:
             return eng.run_information(job.ref)
         if job.kind == "discovery":
             return eng.run_discovery(job.ref)
+        if job.kind in self.extra:
+            return self.extra[job.kind][1](job.ref)
         raise ValueError(f"unknown job kind {job.kind}")
 
     # ------------------------------------------------------------------ loop
@@ -182,4 +188,10 @@ class Scheduler:
                     last = w.get("last_discovery_ts")
                     if hours > 0 and (last is None or now - last >= hours * 3600):
                         n += bool(self.submit("discovery", w["id"], "schedule"))
+        for kind, (due_fn, _run) in self.extra.items():
+            try:
+                if due_fn(now):
+                    n += bool(self.submit(kind, "all", "schedule"))
+            except Exception:  # noqa: BLE001 - a broken extra job must not stop the rest of the tick
+                log.exception("due check of %s failed", kind)
         return n

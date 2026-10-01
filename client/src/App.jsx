@@ -8,6 +8,7 @@ import Watchers from "./pages/Watchers.jsx";
 import Target from "./pages/Target.jsx";
 import Search from "./pages/Search.jsx";
 import Events from "./pages/Events.jsx";
+import Mail from "./pages/Mail.jsx";
 import Settings from "./pages/Settings.jsx";
 
 export { useApp } from "./context.js";
@@ -17,6 +18,7 @@ const PAGES = [
   { path: "watchers", key: "nav_watchers", icon: "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 15a3 3 0 100-6 3 3 0 000 6z", component: Watchers },
   { path: "search", key: "nav_search", icon: "M11 4a7 7 0 100 14 7 7 0 000-14zM21 21l-5-5", component: Search },
   { path: "events", key: "nav_events", icon: "M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v5l3 2", component: Events },
+  { path: "mail", key: "nav_mail", icon: "M3 6h18v12H3zM3 7l9 7 9-7", component: Mail },
   { path: "settings", key: "nav_settings", icon: "M12 15a3 3 0 100-6 3 3 0 000 6zM19 12l2-1-1-3-2 .3-1.4-1.4.3-2-3-1-1 2h-2l-1-2-3 1 .3 2L6.8 7.3 5 7 4 10l2 1v2l-2 1 1 3 2-.3 1.4 1.4-.3 2 3 1 1-2h2l1 2 3-1-.3-2 1.4-1.4 2 .3 1-3-2-1z", component: Settings },
 ];
 // Not in the sidebar: reached from the tables.

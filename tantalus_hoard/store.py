@@ -533,6 +533,7 @@ class Store:
             "info_items": n("SELECT COUNT(*) FROM info_items"),
             "candidates": n("SELECT COUNT(*) FROM candidates WHERE status = 'proposed'"),
             "needs_human": n("SELECT COUNT(*) FROM targets WHERE status = 'needs_human'"),
+            "mail_deals": n("SELECT COUNT(*) FROM mail_deals WHERE status = 'active'"),
         }
 
 

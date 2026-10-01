@@ -8,6 +8,8 @@
 
 Tantalus's Hoard es un vigilante de productos local. Te avisa cuando un producto vuelve a estar en stock, cuando baja de precio o cruza tu límite, cuando abre la reserva o aparece un SKU nuevo en una tienda. También encuentra gangas de segunda mano en Wallapop o Facebook Marketplace y detecta novedades relevantes en páginas oficiales, feeds y búsquedas web. El panel se abre con lo nuevo desde tu última visita. Los avisos llegan como notificación de Windows, evento del bus de la familia, push de ntfy al móvil, mensaje de Telegram o correo. Cada función es además una herramienta MCP para asistentes.
 
+También lee los correos de oferta que las tiendas de juegos y librerías mandan a tu buzón (con la cuenta configurada en Faustus), los guarda como «ofertas del correo» y solo te avisa si coinciden con una lista de deseados o con un vigilante. Un informe de solo lectura muestra qué remitentes llenan el buzón de promociones.
+
 Todo corre en tu ordenador: la base SQLite, el planificador y el perfil del navegador. No sale nada salvo las propias peticiones a las páginas y los avisos que actives.
 
 ## Qué vigila
@@ -37,7 +39,7 @@ Descubrimiento, verificación, detección de cambios y aviso van por separado:
    - Suman: página oficial +45; botón de compra activo o stock positivo en el endpoint +30 (la disponibilidad estructurada también cuenta +30); stock en una tienda objetivo +20; precio y SKU coherentes +10; segunda confirmación +15.
    - Restan: solo fragmento de buscador −25; vendedor externo −35; CAPTCHA o login −20; contradicciones −20; SKU que no coincide −20.
    - Con 75 o más, avisa. Entre 55 y 74, revalida antes. Por debajo de 55, solo registra.
-5. **Eventos.** Solo en transiciones útiles: `RESTOCK`, `LOCAL_RESTOCK`, `PREORDER_OPEN`, `PRICE_DROP`, `PRICE_THRESHOLD_CROSSED`, `NEW_SKU`, `RESTOCK_DATE_CONFIRMED` y `SOLD_OUT`. Para segunda mano y noticias: `NEW_LISTING`, `LISTING_PRICE_DROP`, `INFO_CHANGE` y `CANDIDATE_FOUND`.
+5. **Eventos.** Solo en transiciones útiles: `RESTOCK`, `LOCAL_RESTOCK`, `PREORDER_OPEN`, `PRICE_DROP`, `PRICE_THRESHOLD_CROSSED`, `NEW_SKU`, `RESTOCK_DATE_CONFIRMED` y `SOLD_OUT`. Para segunda mano y noticias: `NEW_LISTING`, `LISTING_PRICE_DROP`, `INFO_CHANGE` y `CANDIDATE_FOUND`. Un correo de oferta que coincide con una lista de deseados o un vigilante es `MAIL_DEAL`.
    - Cada evento tiene clave de deduplicado (objetivo, tipo, estado, precio redondeado y tienda) y un enfriamiento que absorbe los vaivenes IN→OUT→IN.
    - Los avisos de prioridad alta se vuelven a comprobar 60 s después, antes de enviar nada.
 6. **Aviso.** Cada evento sale una sola vez por canal.
@@ -78,6 +80,16 @@ En el primer arranque se instalan siete vigilantes:
 
 Puedes editarlos, desactivarlos o borrarlos. `config_export` y `config_import` mueven toda la configuración como datos.
 
+## Ofertas del correo e informe de ruido
+
+La página **Correo** tiene dos pestañas, **Ofertas** y **Ruido**. Las dos leen el buzón con la cuenta configurada en Faustus: Tantalus ejecuta un lector pequeño (`tantalus_hoard/mail/faustus_reader.py`) con el Python de Faustus, así que la contraseña del correo nunca llega a Tantalus. El lector abre las carpetas en solo lectura y descarga con `BODY.PEEK`. En Tantalus no hay código que envíe, mueva, marque, etiquete, archive, dé de baja ni borre un correo, un test comprueba que el lector no lo tiene, y nunca se abre un enlace de un correo.
+
+- **Ofertas.** Cada pocas horas (`mail.deals.interval_min`, 180 por defecto) el planificador lee los correos nuevos de las tiendas (Steam, GOG, GAME, Epic, Humble, Fanatical, Green Man Gaming, Instant Gaming, xtralife, Bibliostock, Casa del Libro, Agapea, Planeta de Libros, Book Depository, Fnac, más los dominios que añadas). Un analizador convierte cada correo de oferta en filas: tienda, título, descuento («hasta» si es un rango), precio anterior y nuevo, fecha de fin y enlace. Si la tienda manda «un artículo de tu lista de deseados está en oferta», sale una fila por artículo; cualquier otro correo de oferta da una fila de campaña con los títulos de sus imágenes. Una oferta termina en la fecha de fin de la rebaja, o `mail.deals.ttl_days` (7) días después del correo si no dice ninguna.
+- **A quién avisa.** Cada oferta se compara con: la biblioteca de juegos de la app hermana de colección de juegos (juegos en pendientes sin plataforma propia, o con la etiqueta `wishlist`; los que ya tienes nunca avisan), tu propia lista en Ajustes (`mail.deals.wishlist`), los correos de lista de deseados de la propia tienda y tus vigilantes activos (mismos términos de producto). Solo una coincidencia crea un evento `MAIL_DEAL`, una vez, y solo si el correo tiene como mucho tres días. El primer escaneo es silencioso: llena la tabla y no avisa de nada.
+- **Informe de ruido.** Por dominio remitente en los últimos `mail.noise.days` (30): número de correos y porcentaje, categoría de Gmail, si hay enlace o dirección de baja (se muestra como texto, nunca se abre), el último correo y qué Hoard lee ese remitente (Ledger pagos, Phileas envíos, Kafka papeles, JobHunter empleo, Tantalus ofertas de tiendas). Los remitentes promocionales que ningún Hoard lee salen primero, como candidatos a limpiar. No cambia nada.
+
+Ajustes: `mail.deals.enabled`, `mail.deals.interval_min`, `mail.deals.history_days`, `mail.deals.ttl_days`, `mail.deals.stores`, `mail.deals.domains`, `mail.deals.gamerhoard_file`, `mail.deals.wishlist`, `mail.noise.days`.
+
 ## Arrancar
 
 ```sh
@@ -100,7 +112,7 @@ Variables de entorno:
 
 ## Asistentes (MCP)
 
-`python mcp_server.py` es el puente stdio. Nunca abre la base de datos: pasa cada llamada a la app en marcha y la arranca si hace falta. Tiene 44 herramientas:
+`python mcp_server.py` es el puente stdio. Nunca abre la base de datos: pasa cada llamada a la app en marcha y la arranca si hace falta. Tiene 48 herramientas:
 
 - Para empezar: `tantalus_overview`.
 - Para consultas sueltas: `inspect_url`, `secondhand_search` y `web_search`.
@@ -108,9 +120,9 @@ Variables de entorno:
 
 Todas están en [docs/API.md](docs/API.md):
 
-`tantalus_overview`, `tantalus_status`, `watcher_list`, `watcher_get`, `watcher_create`, `watcher_update`, `watcher_delete`, `watcher_run`, `watcher_rescore`, `target_add`, `target_list`, `target_get`, `target_update`, `target_delete`, `target_check`, `target_resolve`, `inspect_url`, `events_list`, `events_mark_seen`, `event_dismiss`, `event_notify`, `listings_list`, `listing_set`, `info_items_list`, `info_item_set`, `candidates_list`, `candidate_accept`, `candidate_reject`, `discovery_run`, `web_search`, `secondhand_search`, `secondhand_facebook_login`, `packs_list`, `presets_list`, `presets_install`, `notify_status`, `notify_test`, `telegram_find_chat_id`, `settings_set`, `secret_set`, `scheduler_status`, `runs_list`, `config_export`, `config_import`.
+`tantalus_overview`, `tantalus_status`, `watcher_list`, `watcher_get`, `watcher_create`, `watcher_update`, `watcher_delete`, `watcher_run`, `watcher_rescore`, `target_add`, `target_list`, `target_get`, `target_update`, `target_delete`, `target_check`, `target_resolve`, `inspect_url`, `events_list`, `events_mark_seen`, `event_dismiss`, `event_notify`, `listings_list`, `listing_set`, `info_items_list`, `info_item_set`, `candidates_list`, `candidate_accept`, `candidate_reject`, `discovery_run`, `web_search`, `secondhand_search`, `secondhand_facebook_login`, `packs_list`, `presets_list`, `presets_install`, `notify_status`, `notify_test`, `telegram_find_chat_id`, `settings_set`, `secret_set`, `scheduler_status`, `runs_list`, `config_export`, `config_import`, `mail_deals`, `mail_deals_scan`, `mail_noise_report`, `mail_deal_set`.
 
-El texto de las páginas, los títulos y los fragmentos son datos de terceros. Los resultados de las herramientas lo indican, y el modelo opcional los recibe marcados como contenido no fiable.
+El texto de las páginas, los títulos, los fragmentos y los asuntos de los correos son datos de terceros. Los resultados de las herramientas lo indican, y el modelo opcional los recibe marcados como contenido no fiable.
 
 ## Límites
 
@@ -118,6 +130,7 @@ El texto de las páginas, los títulos y los fragmentos son datos de terceros. L
 - **Stock por tienda.** Solo se lee cuando la tienda lo muestra en la página. Si no, la lista de tiendas del vigilante es una preferencia.
 - **DGX Spark.** La API de productos de NVIDIA no la incluye hoy, así que ese objetivo sale «desconocido» hasta que la incluya.
 - **Búsqueda web.** La búsqueda web sin clave es poco fiable desde un programa: DuckDuckGo pide una comprobación anti-bot tras pocas consultas y Bing degrada las consultas largas. Las búsquedas de noticias usan los RSS de Google News y Bing News, que funcionan bien. Para productos, lo fiable para descubrir SKUs nuevos es vigilar las búsquedas de las propias tiendas. SearXNG o una clave de Brave añaden motores web de verdad.
+- **Ofertas del correo.** Necesitan Faustus con una cuenta de correo. El análisis es por reglas sobre el texto de los correos: si una tienda cambia el diseño del suyo, puede salir una fila de campaña en vez de una por artículo. La app de colección de libros es una base de datos en la nube sin archivo local, así que las listas de libros solo salen de tu propia lista en Ajustes. La biblioteca de juegos se lee de `mail.deals.gamerhoard_file`, `GAMERHOARD_DATA_FILE` o `~/.gamerhoard/library.json`; sin ella solo coinciden tu lista, los correos de deseados de la tienda y los vigilantes.
 - **Facebook.** Sus condiciones prohíben el acceso automatizado. Marketplace está desactivado por defecto y usa tu propia sesión en el perfil del navegador de la app.
 
 ## Tests

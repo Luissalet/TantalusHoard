@@ -19,6 +19,9 @@ from .errors import TantalusError
 from .fetch import Fetcher
 from .info import InfoSentry
 from .llm import LLM
+from .mail.deals import DEFAULTS as MAIL_DEFAULTS, NUMERIC as MAIL_NUMERIC, MailDeals
+from .mail.repo import MailRepo
+from .mail.source import MailSource
 from .model import BUYABLE, MODE_AVAILABILITY, MODE_INFORMATION, MODE_SECONDHAND, MODES
 from .modelprobe import ModelProbe
 from .notify import CHANNELS, EMAIL_BACKENDS, Notifier
@@ -41,6 +44,8 @@ UI_SETTINGS = {
     "notify.email.faustus_owner": None,
     **{f"notify.{c}.enabled": ("1", "0") for c in CHANNELS},
     **{f"notify.{c}.min_severity": ("low", "medium", "high") for c in CHANNELS},
+    "mail.deals.enabled": ("1", "0"),
+    **{key: None for key in MAIL_DEFAULTS if key != "mail.deals.enabled"},
 }
 
 
@@ -101,8 +106,11 @@ class Services:
         self.notifier = notifier or Notifier(config, self.db.get_setting, clock=clock_fn)
         self.engine = Engine(self.store, self.fetcher, llm=self.llm, notifier=self.notifier, websearch=self.websearch,
                              info_sentry=self.info, settings_get=self.db.get_setting, emit=self._emit, clock=clock_fn)
+        self.mail = MailDeals(self.store, self.engine, MailRepo(self.db, clock_fn), MailSource(self.notifier, self.db.get_setting),
+                              self.db.get_setting, self.db.set_setting, clock=clock_fn)
         self.scheduler = Scheduler(self.engine, self.store, clock=clock_fn, enabled=config.scheduler,
-                                   paused=lambda: self.db.get_setting("scheduler.paused", "0") == "1")
+                                   paused=lambda: self.db.get_setting("scheduler.paused", "0") == "1",
+                                   extra={"mail_deals": (self.mail.due, self.mail.run_job)})
         should_install = install_presets if install_presets is not None else (config.scheduler and not config.offline)
         if should_install and self.db.get_setting("presets.installed") is None and not self.store.watchers():
             self.install_presets()
@@ -185,6 +193,8 @@ class Services:
                 default = "1" if DEFAULT_ENABLED.get(channel) else "0"
             if key.endswith(".min_severity"):
                 default = "low"
+            if key in MAIL_DEFAULTS:
+                default = MAIL_DEFAULTS[key]
             values[key] = self.db.get_setting(key, default)
         return values
 
@@ -196,6 +206,18 @@ class Services:
             value = str(value).strip() if not isinstance(value, bool) else ("1" if value else "0")
             if allowed and value not in allowed:
                 raise TantalusError("invalid", f"{key} must be one of {', '.join(allowed)}.")
+            if key in MAIL_NUMERIC:
+                low, high = MAIL_NUMERIC[key]
+                if not value.isdigit() or not low <= int(value) <= high:
+                    raise TantalusError("invalid", f"{key} must be a whole number between {low} and {high}.")
+            if key == "mail.deals.stores":
+                from .mail.stores import STORE_BY_ID
+                bad = [s for s in value.replace(";", ",").split(",") if s.strip() and s.strip().lower() not in STORE_BY_ID]
+                if bad:
+                    raise TantalusError("invalid", f"Unknown store id(s): {', '.join(bad)}.", f"Known: {', '.join(STORE_BY_ID)}.")
+            if key == "mail.deals.domains":
+                from .mail.stores import clean_domains
+                value = ", ".join(clean_domains(value))
             self.db.set_setting(key, value)
         return self.settings()
 
@@ -285,6 +307,7 @@ class Services:
         ok, reason = self.llm.available()
         return {"service": SERVICE, "version": __version__, "data_dir": str(self.config.data_dir), "uptime_s": int(time.time() - self.started_at),
                 "counts": self.counts(), "scheduler": self.scheduler.status(), "channels": self.notifier.channels_status(),
+                "mail": {k: v for k, v in self.mail.status().items() if k in ("enabled", "first_scan_done", "last_run_ts", "next_run_ts", "last_error", "counts")},
                 "llm": {"available": ok, "reason": reason, "calls": self.llm.calls, "failures": self.llm.failures, "skipped_budget": self.llm.skipped,
                         "budget": f"{self.llm.max_calls} per {int(self.llm.window_s // 60)} min"},
                 "search_engines": self.websearch.available_engines() if hasattr(self.websearch, "available_engines") else [],
