@@ -1,29 +1,29 @@
 @import "tailwindcss";
 
-/* Dark, dense, plum: the ramp runs from #4a2a6b (deep) to #c79bf0 (accent) and #ecd9ff (light). */
+/* Colours come from the shared Hoard theme (hoard-theme.css); names below are this app's own. */
 :root {
   color-scheme: dark;
-  --accent: #c79bf0;
-  --accent-strong: #9d6fd0;
-  --accent-deep: #4a2a6b;
-  --accent-soft: #c79bf022;
-  --light: #ecd9ff;
-  --bg: #120d18;
-  --sidebar: #0c0911;
-  --surface: #19131f;
-  --surface-2: #231a2c;
-  --line: #36294a;
-  --ink: #ebe4f2;
-  --muted: #9a8cab;
-  --field: #0f0a14;
-  --ok: #4fb286;
-  --warn: #e0a43a;
-  --danger: #e5604b;
-  --info: #7cc3e6;
-  --ok-bg: #4fb28622;
-  --warn-bg: #e0a43a22;
-  --danger-bg: #e5604b22;
-  --info-bg: #7cc3e622;
+  --accent: var(--hoard-accent);
+  --accent-strong: var(--hoard-accent);
+  --accent-deep: var(--hoard-accent-dim);
+  --accent-soft: var(--hoard-accent-soft);
+  --light: var(--hoard-text);
+  --bg: var(--hoard-deep);
+  --sidebar: var(--hoard-surface);
+  --surface: var(--hoard-surface);
+  --surface-2: var(--hoard-elevated);
+  --line: var(--hoard-border);
+  --ink: var(--hoard-text);
+  --muted: var(--hoard-text-muted);
+  --field: var(--hoard-sunken);
+  --ok: var(--hoard-success);
+  --warn: var(--hoard-warning);
+  --danger: var(--hoard-danger);
+  --info: var(--hoard-info);
+  --ok-bg: color-mix(in srgb, var(--hoard-success) 14%, transparent);
+  --warn-bg: color-mix(in srgb, var(--hoard-warning) 14%, transparent);
+  --danger-bg: color-mix(in srgb, var(--hoard-danger) 14%, transparent);
+  --info-bg: color-mix(in srgb, var(--hoard-info) 14%, transparent);
 }
 
 @layer base {
@@ -117,3 +117,39 @@ details > summary { cursor: pointer; }
 .tip { position: relative; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 }
+
+/* ---- Hoard family chrome (Writer's look): unlayered so it wins over Tailwind utilities ---- */
+body { font-family: var(--hoard-font-sans); }
+@media (min-width: 768px) {
+  #root > div.min-h-dvh { grid-template-columns: var(--hoard-sidebar-w) minmax(0, 1fr) !important; }
+}
+aside { background: var(--hoard-surface) !important; border-color: var(--hoard-border) !important; }
+aside > div:first-child { display: flex; align-items: center; gap: 12px; min-height: var(--hoard-header-h); padding: 0 14px !important; border-bottom: 1px solid var(--hoard-border); }
+aside > div:first-child img { width: 32px; height: 32px; border-radius: 8px; }
+aside > div:first-child > div { font-family: var(--hoard-font-serif); font-weight: 700; font-size: 15px; line-height: 1.2; white-space: nowrap; color: var(--hoard-accent); }
+.nav-link { min-height: 40px; padding: 0 12px; border-radius: var(--hoard-radius); font-size: 14px !important; font-weight: 500; color: var(--hoard-text-muted); }
+.nav-link:hover { background: var(--hoard-elevated); color: var(--hoard-text); }
+.nav-link[aria-current="page"] { background: var(--hoard-elevated); color: var(--hoard-text); font-weight: 500; }
+.nav-link[aria-current="page"] svg { color: var(--hoard-accent); }
+main h1 { font-family: var(--hoard-font-serif); font-weight: 700; font-size: 30px; line-height: 1.2; color: var(--hoard-text); }
+.btn { border-radius: var(--hoard-radius); background: transparent; border-color: var(--hoard-border); color: var(--hoard-text); }
+.btn:hover { background: var(--hoard-elevated); border-color: var(--hoard-border-hover); }
+.btn-primary, .btn-active { background: var(--hoard-accent); border-color: var(--hoard-accent); color: var(--hoard-accent-ink); font-weight: 600; }
+.btn-primary:hover, .btn-active:hover { background: var(--hoard-accent-strong); border-color: var(--hoard-accent-strong); }
+.btn-danger { background: transparent; border-color: var(--hoard-border); color: var(--hoard-danger); }
+.btn-danger:hover { background: var(--hoard-elevated); border-color: var(--hoard-danger); }
+.skip-link { background: var(--hoard-accent); color: var(--hoard-accent-ink); }
+.field { border-radius: var(--hoard-radius); background: var(--hoard-surface); border-color: var(--hoard-border); color: var(--hoard-text); }
+.field::placeholder { color: var(--hoard-text-dim); }
+.field:focus { border-color: var(--hoard-accent); outline: none; }
+.panel, .card, .theme-card, .block-card { border-color: var(--hoard-border); border-radius: var(--hoard-radius-lg); }
+.card:hover, a.card:hover, .theme-card:hover { border-color: var(--hoard-border-hover); }
+.chip { border-radius: var(--hoard-radius-sm); background: var(--hoard-elevated); color: var(--hoard-text-muted); font-size: 11px; }
+.chip-amber { background: color-mix(in srgb, var(--hoard-warning) 16%, transparent); color: var(--hoard-warning); }
+.chip-ok { background: color-mix(in srgb, var(--hoard-success) 16%, transparent); color: var(--hoard-success); }
+.chip-danger { background: color-mix(in srgb, var(--hoard-danger) 16%, transparent); color: var(--hoard-danger); }
+.chip-accent { background: var(--hoard-accent-soft); color: var(--hoard-accent); }
+table.grid th { color: var(--hoard-text-dim); font-size: 12px; }
+table.grid td { border-bottom-color: var(--hoard-border); }
+.tab[aria-selected="true"] { background: var(--hoard-surface); border-color: var(--hoard-border); border-bottom-color: var(--hoard-deep); color: var(--hoard-text); }
+.toast { background: var(--hoard-elevated); border-color: var(--hoard-border); box-shadow: var(--hoard-shadow); }
