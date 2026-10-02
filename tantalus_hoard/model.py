@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
+from .hoard_link.web.fetch import FetchResult  # noqa: F401  (the commons' result type, re-exported for the app)
+
 # ----------------------------------------------------------------------------- availability states
 IN_STOCK = "IN_STOCK"                    # can be bought now
 LOCAL_PICKUP = "LOCAL_PICKUP"            # pickup available at a target store
@@ -73,34 +75,6 @@ CANDIDATE_STATUSES = ("proposed", "accepted", "rejected")
 
 
 # ----------------------------------------------------------------------------- dataclasses
-@dataclass
-class FetchResult:
-    """What the fetch ladder returns. ``text`` is decoded HTML/JSON; never raises for expected failures."""
-
-    url: str
-    final_url: str = ""
-    status: int = 0                   # HTTP status (0 = network error / not attempted)
-    text: str = ""
-    content_type: str = ""
-    tier: str = "http"                # http | browser | api | cache
-    ok: bool = False                  # a usable document was obtained
-    blocked: bool = False             # anti-bot / CAPTCHA / login wall detected
-    block_reason: str = ""            # captcha | login | cloudflare | akamai | http_403 | http_429 | robots | offline | unsafe_url
-    not_modified: bool = False        # conditional GET answered 304 (text is the cached body)
-    error: str = ""
-    elapsed_ms: int = 0
-    fetched_at: float = 0.0
-    etag: str = ""
-    last_modified: str = ""
-    headers: dict[str, str] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        d = asdict(self)
-        d.pop("text", None)
-        d["text_len"] = len(self.text)
-        return d
-
-
 @dataclass
 class Offer:
     """One product offer found on a page (a product page yields one; a list / search page may yield many)."""

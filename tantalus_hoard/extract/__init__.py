@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
 
-from ..fetch.blocks import HTTP_5XX, detect_block
+from ..hoard_link.web.blocks import HTTP_5XX, detect_block
 from ..llm import LLM
 from ..model import (COMING_SOON, IN_STOCK, LOCAL_PICKUP, OUT_OF_STOCK, PREORDER, RESTOCK_SCHEDULED, UNKNOWN, Extraction,
                      FetchResult, Offer)

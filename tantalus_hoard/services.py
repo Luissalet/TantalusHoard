@@ -350,7 +350,7 @@ class Services:
         return self.store.counts()
 
     def status(self) -> dict[str, Any]:
-        from .fetch.browser import playwright_installed
+        from .hoard_link.web.browser import playwright_installed
         ok, reason = self.llm.available()
         return {"service": SERVICE, "version": __version__, "data_dir": str(self.config.data_dir), "uptime_s": int(time.time() - self.started_at),
                 "counts": self.counts(), "scheduler": self.scheduler.status(), "channels": self.notifier.channels_status(),

@@ -14,8 +14,8 @@ import pytest
 from tantalus_hoard.config import Config
 from tantalus_hoard.db import Database
 from tantalus_hoard.errors import TantalusError
-from tantalus_hoard.fetch import Fetcher, safety
-from tantalus_hoard.fetch.browser import BrowserRung, channel_order, launch_context
+from tantalus_hoard.fetch import Fetcher
+from tantalus_hoard.hoard_link.web import safety
 from tantalus_hoard.model import FetchResult
 
 PAGES = Path(__file__).parent / "fixtures" / "pages"
@@ -46,9 +46,12 @@ class FakeBrowser:
         self.closed = False
 
     def available(self):
-        return self._available
+        return self._available[0]
 
-    def fetch(self, url, *, timeout=None):
+    def unavailable_reason(self):
+        return self._available[1]
+
+    def fetch(self, url, settle_s=None, *, timeout_s=None):
         self.calls.append(url)
         fr = self.result or FetchResult(url=url, tier="browser", status=200, text=HTML, ok=True)
         return FetchResult(**{**fr.__dict__, "url": url})
@@ -102,8 +105,8 @@ def test_unsafe_urls_are_rejected(url):
 def test_public_urls_pass_and_resolution_is_checked():
     assert safety.check_url("https://www.game.es/x", resolver=lambda h, p: PUBLIC) is None
     assert safety.check_url("https://8.8.8.8/x") is None
-    assert "non-public" in safety.check_url("https://evil.example/x", resolver=lambda h, p: ["93.184.216.34", "10.1.2.3"])
-    assert "non-public" in safety.check_url("https://evil.example/x", resolver=lambda h, p: ["::1"])
+    assert "10.1.2.3" in safety.check_url("https://evil.example/x", resolver=lambda h, p: ["93.184.216.34", "10.1.2.3"])   # every answer is judged
+    assert "::1" in safety.check_url("https://evil.example/x", resolver=lambda h, p: ["::1"])
     bad = safety.check_url("https://nope.invalid/x", resolver=lambda h, p: (_ for _ in ()).throw(OSError("no dns")))
     assert bad.startswith(safety.UNRESOLVABLE_PREFIX)
 
@@ -169,7 +172,7 @@ def test_network_error_is_not_a_block(env):
 
     env.routes["https://www.game.es/x"] = boom
     fr = env.make().get("https://www.game.es/x", respect_robots=False)
-    assert not fr.ok and not fr.blocked and "network error" in fr.error and fr.status == 0
+    assert not fr.ok and not fr.blocked and fr.error_kind == "network" and "refused" in fr.error and fr.status == 0
     row = env.db.one("SELECT * FROM host_state WHERE host='www.game.es'")
     assert row["fail_count"] == 1 and not row["blocked_until_ts"]
 
@@ -228,7 +231,7 @@ def test_robots_missing_or_unreachable_allows(env):
     assert fetcher.get("https://www.game.es/x", min_interval_s=0).ok        # 404 robots
     env.routes["https://shop.example/robots.txt"] = httpx.Response(503)
     fr = fetcher.get("https://shop.example/x", min_interval_s=0)
-    assert fr.ok and "robots.txt unreachable" in fr.headers.get("x-tantalus-note", "")
+    assert fr.ok and "robots.txt unreachable" in fr.note
     fr = fetcher.get("https://shop.example/y", min_interval_s=0)             # not re-fetched right away
     assert fr.ok
     assert len([r for r in env.requests if str(r.url) == "https://shop.example/robots.txt"]) == 1
@@ -332,10 +335,13 @@ def test_browser_blocked_too_is_reported_and_left_alone(env):
     assert len(browser.calls) == calls + 1
 
 
-def test_tier_browser_bypasses_cooldown_and_needs_the_rung(env):
+def test_tier_browser_respects_the_cooldown_until_it_is_cleared_and_needs_the_rung(env):
     env.routes["https://www.fnac.es/"] = httpx.Response(403, text="<html>x</html>")
     fetcher = env.make(browser=FakeBrowser())
     fetcher.get("https://www.fnac.es/a", tier="http", respect_robots=False)     # cooldown now
+    fr = fetcher.get("https://www.fnac.es/b", tier="browser", respect_robots=False, min_interval_s=0)
+    assert fr.blocked and "not retrying" in fr.error                             # the family cooldown applies to every tier
+    fetcher.clear_block("www.fnac.es")                                           # e.g. after the human solved it
     fr = fetcher.get("https://www.fnac.es/b", tier="browser", respect_robots=False, min_interval_s=0)
     assert fr.ok and fr.tier == "browser"
     off = env.make()                                                             # rung disabled
@@ -382,169 +388,32 @@ def test_browser_session_requires_the_rung(env):
     assert info.value.code == "fetch_failed"
 
 
-# ------------------------------------------------------------------------------------------------ browser rung (fake Playwright)
-class FakePage:
-    def __init__(self, ctx, html, status, headers, url):
-        self.ctx, self._html, self.status, self.headers_, self.url = ctx, html, status, headers, url
-        self.thread = threading.get_ident()
-
-    def goto(self, url, wait_until=None, timeout=None):
-        self.ctx.owner_threads.add(threading.get_ident())
-        self.url = url
-        self.ctx.visited.append(url)
-        return type("R", (), {"status": self.status, "headers": self.headers_})()
-
-    def wait_for_load_state(self, state, timeout=None):
-        pass
-
-    def wait_for_timeout(self, ms):
-        pass
-
-    def content(self):
-        return self._html
-
-    def close(self):
-        pass
-
-
-class FakeContext:
-    def __init__(self, kwargs, html, status, headers):
-        self.kwargs, self.html, self.status, self.headers_ = kwargs, html, status, headers
-        self.visited, self.owner_threads, self.closed, self.pages = [], set(), False, []
-
-    def new_page(self):
-        return FakePage(self, self.html, self.status, self.headers_, "")
-
-    def close(self):
-        self.closed = True
-
-    def wait_for_event(self, name, timeout=None):
-        return None
-
-
-class FakePlaywright:
-    def __init__(self, fail_channels=(), html=HTML, status=200, headers=None):
-        self.fail_channels, self.html, self.status, self.headers = set(fail_channels), html, status, headers or {"content-type": "text/html"}
-        self.contexts: list[FakeContext] = []
-        self.stopped = False
-        self.attempts: list = []
-        pw = self
-        self.chromium = type("C", (), {"launch_persistent_context": lambda _s, **kw: pw._launch(kw)})()
-
-    def _launch(self, kw):
-        self.attempts.append(kw.get("channel"))
-        if kw.get("channel") in self.fail_channels:
-            raise RuntimeError(f"Executable doesn't exist for {kw.get('channel')}\nmore text")
-        ctx = FakeContext(kw, self.html, self.status, self.headers)
-        self.contexts.append(ctx)
-        return ctx
-
-    def stop(self):
-        self.stopped = True
-
-
-def rung_with(tmp_path, fake: FakePlaywright, **kw) -> BrowserRung:
-    config = Config(data_dir=tmp_path, browser=True)
-    return BrowserRung(config, playwright_factory=lambda: fake, **kw)
-
-
-def test_channel_order_prefers_edge_on_windows():
-    assert channel_order("win32") == ["msedge", "chrome", None]
-    assert channel_order("linux")[0] == "chrome"
-
-
-def test_launch_falls_through_channels(tmp_path):
-    fake = FakePlaywright(fail_channels={"msedge"})
-    ctx, name = launch_context(fake, tmp_path / "p", headless=True, channels=["msedge", "chrome", None])
-    assert name == "chrome" and fake.attempts == ["msedge", "chrome"]
-    assert ctx.kwargs["headless"] is True and ctx.kwargs["user_data_dir"] == str(tmp_path / "p")
-    with pytest.raises(Exception) as info:
-        launch_context(FakePlaywright(fail_channels={"msedge", "chrome", None}), tmp_path / "p", headless=True, channels=["msedge", "chrome", None])
-    assert "no browser could be started" in str(info.value) and "Executable doesn't exist" in str(info.value)
-
-
-def test_rung_fetch_runs_on_one_worker_thread_from_any_caller(tmp_path):
-    fake = FakePlaywright()
-    rung = rung_with(tmp_path, fake, channels=[None])
-    results: list[FetchResult] = []
-
-    def call(i):
-        results.append(rung.fetch(f"https://www.game.es/p/{i}"))
-
-    threads = [threading.Thread(target=call, args=(i,)) for i in range(4)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-    assert len(results) == 4 and all(r.ok and r.tier == "browser" for r in results)
-    ctx = fake.contexts[0]
-    assert len(fake.contexts) == 1                       # one persistent context, reused
-    assert len(ctx.owner_threads) == 1                   # every Playwright call came from the same thread
-    assert threading.get_ident() not in ctx.owner_threads
-    rung.close()
-    assert ctx.closed and fake.stopped
-
-
-def test_rung_reports_blocks_and_never_solves(tmp_path):
-    fake = FakePlaywright(html=(PAGES / "carrefour_cloudflare.html").read_text(encoding="utf-8"), status=403)
-    rung = rung_with(tmp_path, fake, channels=[None])
-    fr = rung.fetch("https://www.carrefour.es/")
-    assert fr.blocked and fr.block_reason == "cloudflare" and not fr.ok and fr.status == 403
-    rung.close()
-
-
-def test_rung_unavailable_messages(tmp_path, monkeypatch):
-    disabled = BrowserRung(Config(data_dir=tmp_path, browser=False))
-    ok, why = disabled.available()
-    assert not ok and "disabled" in why
-    fr = disabled.fetch("https://www.game.es/")
-    assert not fr.ok and "disabled" in fr.error
-    monkeypatch.setattr("tantalus_hoard.fetch.browser.playwright_installed", lambda: False)
-    missing = BrowserRung(Config(data_dir=tmp_path, browser=True))
-    ok, why = missing.available()
-    assert not ok and "pip install playwright" in why
-
-
-def test_rung_launch_failure_is_an_error_result(tmp_path):
-    fake = FakePlaywright(fail_channels={None})
-    rung = rung_with(tmp_path, fake, channels=[None])
-    fr = rung.fetch("https://www.game.es/")
-    assert not fr.ok and "no browser could be started" in fr.error
-    rung.close()
-
-
-def test_browser_session_gives_a_private_context_and_frees_the_worker(tmp_path):
-    fake = FakePlaywright()
-    rung = rung_with(tmp_path, fake, channels=["msedge", None])
-    rung.fetch("https://www.game.es/a")                  # the worker now holds the profile
-    worker_ctx = fake.contexts[0]
-    with rung.browser_session() as ctx:
-        assert worker_ctx.closed                         # profile released for the session
-        assert ctx is fake.contexts[1] and ctx.kwargs["headless"] is True
-    assert ctx.closed
-    fr = rung.fetch("https://www.game.es/b")             # the worker reopens it afterwards
-    assert fr.ok and len(fake.contexts) == 3
-    rung.close()
-
-
-def test_open_for_human_is_headed_on_the_shared_profile(tmp_path):
-    fake = FakePlaywright()
-    rung = rung_with(tmp_path, fake, channels=[None])
-    result = rung.open_for_human("https://www.carrefour.es/", timeout_s=5)
-    ctx = fake.contexts[0]
-    assert ctx.kwargs["headless"] is False and ctx.kwargs["user_data_dir"] == str(tmp_path / "browser-profile")
-    assert result["url"] == "https://www.carrefour.es/" and ctx.closed
-    rung.close()
+class HumanBrowser(FakeBrowser):
+    def open_for_human(self, url, *, timeout_s=900.0):
+        self.calls.append(("human", url))
+        return {"url": url, "closed_by_user": True}
 
 
 def test_fetcher_open_for_human_clears_the_block(env):
     env.routes["https://www.fnac.es/"] = httpx.Response(403, text="<html>x</html>")
-    fake = FakePlaywright()
-    fetcher = env.make(browser=rung_with(env.config.data_dir, fake, channels=[None]))
+    fetcher = env.make(browser=HumanBrowser())
     fetcher.get("https://www.fnac.es/a", tier="http", respect_robots=False)
     assert fetcher.host_status()[0]["blocked_now"] is True
-    fetcher.open_for_human("https://www.fnac.es/a", timeout_s=2)
+    assert fetcher.open_for_human("https://www.fnac.es/a", timeout_s=2)["closed_by_user"] is True
     assert fetcher.host_status()[0]["blocked_now"] is False
+
+
+def test_open_for_human_without_a_browser_asks_the_hub_or_says_why(env, monkeypatch):
+    from tantalus_hoard.fetch import fam_web
+    fetcher = env.make()                                  # no rung
+    fetcher.use_hub = True
+    monkeypatch.setattr(fam_web, "available", lambda *a, **k: False)
+    with pytest.raises(TantalusError) as info:
+        fetcher.open_for_human("https://www.fnac.es/a")
+    assert info.value.code == "fetch_failed"
+    monkeypatch.setattr(fam_web, "available", lambda *a, **k: True)
+    monkeypatch.setattr(fam_web, "open_for_human", lambda url: {"ok": True, "started": True, "via": "family_profile"})
+    assert fetcher.open_for_human("https://www.fnac.es/a")["via"] == "hub"
 
 
 # ------------------------------------------------------------------------------------------------ visible window (Carrefour)
@@ -553,7 +422,7 @@ class FakeWindowBrowser(FakeBrowser):
         super().__init__()
         self.window_calls: list[str] = []
 
-    def fetch_window(self, url, *, timeout=None):
+    def fetch_window(self, url, *, timeout_s=None):
         self.window_calls.append(url)
         return FetchResult(url=url, final_url=url, tier="window", status=200, text=HTML, ok=True)
 
@@ -577,7 +446,7 @@ def test_a_refused_window_leaves_the_shop_alone_for_a_while(env):
     product = "https://www.carrefour.es/pokemon-ultra-premium/VC4A-34535253/p"
 
     class Refused(FakeWindowBrowser):
-        def fetch_window(self, url, *, timeout=None):
+        def fetch_window(self, url, *, timeout_s=None):
             self.window_calls.append(url)
             return FetchResult(url=url, final_url=url, tier="window", status=403, blocked=True, block_reason="cloudflare",
                                error="blocked: Cloudflare challenge page", text="<html><title>Attention Required! | Cloudflare</title></html>")
@@ -587,3 +456,82 @@ def test_a_refused_window_leaves_the_shop_alone_for_a_while(env):
     assert first.blocked and len(browser.window_calls) == 1
     second = fetcher.get(product, respect_robots=False, min_interval_s=0)
     assert second.blocked and "not retrying" in second.error and len(browser.window_calls) == 1
+
+
+# ------------------------------------------------------------------------------------------------ the family web service
+@pytest.fixture()
+def hub(monkeypatch):
+    """A fake hub web service: records the calls and answers what the test scripts."""
+    from tantalus_hoard.fetch import fam_web
+
+    class Hub:
+        up = True
+        calls: list = []
+        answer: dict = {}
+
+    h = Hub()
+    h.calls = []
+    h.answer = {"ok": True, "status": 200, "tier": "http", "text": HTML, "content_type": "text/html", "final_url": "https://www.game.es/x"}
+    monkeypatch.setattr(fam_web, "available", lambda *a, **k: h.up)
+
+    def fetch(url, **kw):
+        h.calls.append((url, kw))
+        return dict(h.answer) if h.up else {"ok": False, "error": "hub unreachable"}
+
+    monkeypatch.setattr(fam_web, "fetch", fetch)
+    return h
+
+
+def test_plain_page_fetches_go_through_the_family_service_and_keep_the_local_state(env, hub):
+    fetcher = env.make(use_hub=True)
+    fr = fetcher.get("https://www.game.es/x", min_interval_s=0)
+    assert fr.ok and fr.text == HTML and "family web service" in fr.note and fr.tier == "http"
+    url, kw = hub.calls[0]
+    assert url == "https://www.game.es/x" and kw["tier"] == "http" and kw["respect_robots"] is True and kw["fresh"] is True
+    assert env.requests == []                                    # no traffic of our own, not even robots.txt
+    assert env.db.one("SELECT ok_count FROM host_state WHERE host='www.game.es'")["ok_count"] == 1
+
+
+def test_the_politeness_interval_of_the_app_still_applies_in_front_of_the_hub(env, hub):
+    fetcher = env.make(use_hub=True)
+    fetcher.get("https://www.game.es/a")
+    env.clock.now += 5
+    fetcher.get("https://www.game.es/b")
+    assert env.clock.sleeps == [15.0] and len(hub.calls) == 2
+
+
+def test_a_block_reported_by_the_hub_starts_the_local_cooldown_too(env, hub):
+    hub.answer = {"ok": False, "status": 403, "tier": "http", "blocked": True, "block_reason": "cloudflare", "error": "blocked: Cloudflare"}
+    fetcher = env.make(use_hub=True)
+    fr = fetcher.get("https://www.carrefour.es/p", min_interval_s=0)
+    assert fr.blocked and fr.block_reason == "cloudflare"
+    again = fetcher.get("https://www.carrefour.es/p2", min_interval_s=0)
+    assert again.blocked and "not retrying" in again.error and len(hub.calls) == 1
+
+
+def test_robots_refusal_from_the_hub_is_a_soft_failure(env, hub):
+    hub.answer = {"ok": False, "status": 0, "tier": "http", "error": "robots.txt of www.game.es disallows this path", "error_kind": "robots"}
+    fr = env.make(use_hub=True).get("https://www.game.es/private", min_interval_s=0)
+    assert not fr.ok and fr.block_reason == "robots" and not fr.blocked
+
+
+def test_without_the_hub_the_local_ladder_runs_and_checks_robots_itself(env, hub):
+    hub.up = False
+    env.routes["https://www.game.es/robots.txt"] = httpx.Response(200, text="User-agent: *\nDisallow: /private\n")
+    fetcher = env.make(use_hub=True)
+    assert not fetcher.get("https://www.game.es/private/x", min_interval_s=0).ok
+    assert fetcher.get("https://www.game.es/public", min_interval_s=0).ok
+    assert [r.url.path for r in env.requests].count("/robots.txt") == 1
+
+
+def test_custom_headers_and_other_tiers_stay_local(env, hub):
+    fetcher = env.make(use_hub=True, browser=FakeBrowser())
+    assert fetcher.get("https://www.game.es/x", headers={"X-Test": "1"}, respect_robots=False, min_interval_s=0).ok
+    assert fetcher.get("https://www.fnac.es/y", tier="browser", respect_robots=False, min_interval_s=0).tier == "browser"
+    assert hub.calls == []
+
+
+def test_a_hub_level_refusal_falls_back_to_the_local_fetcher(env, hub):
+    hub.answer = {"ok": False, "status": 403, "error": "this profile is for the hub page"}      # no "tier": the hub did not fetch
+    fr = env.make(use_hub=True).get("https://www.game.es/x", respect_robots=False, min_interval_s=0)
+    assert fr.ok and env.pages()

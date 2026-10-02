@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tantalus_hoard.fetch.blocks import apply_block, detect_block
+from tantalus_hoard.hoard_link.web.blocks import apply_block, detect_block
 from tantalus_hoard.model import FetchResult
 
 PAGES = Path(__file__).parent / "fixtures" / "pages"
