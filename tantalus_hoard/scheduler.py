@@ -3,7 +3,10 @@
 - ``checks`` lane: revalidations and product-target checks (short, time-sensitive).
 - ``sweeps`` lane: second-hand sweeps, information sweeps, discovery and the extra kinds (long: many queries, polite pauses).
 
-Extra kinds are registered by the caller as ``{kind: (due(now) -> bool, run(ref) -> Any)}``; the mailbox scan is one of them.
+The lanes, the de-duplication, ``run_now`` and the worker threads are the commons' ``hoard_link.lanes.LaneScheduler``; what stays
+here is what is Tantalus's own: which targets and watchers are due (read from the store on every tick) and how a job kind runs
+in the engine. Extra kinds are registered by the caller as ``{kind: (due(now) -> bool, run(ref) -> Any)}``; the mailbox scan is one
+of them.
 
 A long Wallapop sweep therefore never delays a restock check. Per-host politeness lives in the fetcher (one
 request at a time per host, minimum interval), so the two lanes can run side by side safely. A job that raises is
@@ -13,28 +16,17 @@ logged and never stops a lane. Manual "check now" requests go through the same q
 from __future__ import annotations
 
 import logging
-import queue
-import threading
 import time
-from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, Callable, Optional
 
+from .hoard_link.lanes import Job as _LaneJob, LaneScheduler
 from .model import MODE_AVAILABILITY, MODE_INFORMATION, MODE_SECONDHAND
 
 log = logging.getLogger("tantalus.scheduler")
 
 TICK_S = 15.0
 MIN_WATCHER_INTERVAL_MIN = 10  # floor inherited from Radar de Libros: never hammer a marketplace
-
-
-@dataclass
-class Job:
-    kind: str                 # check | revalidate | secondhand | information | discovery | (an extra kind such as mail_deals)
-    ref: str
-    reason: str = "schedule"
-    done: threading.Event = field(default_factory=threading.Event)
-    result: Any = None
-    error: str = ""
 
 
 LANES = ("checks", "sweeps")
@@ -54,120 +46,69 @@ class Scheduler:
         self.clock = clock
         self.enabled = enabled
         self.paused = paused
-        self._queues: dict[str, "queue.Queue[Job]"] = {lane: queue.Queue() for lane in LANES}
-        self._pending: set[tuple[str, str]] = set()
-        self._lock = threading.Lock()
-        self._stop = threading.Event()
-        self._threads: dict[str, threading.Thread] = {}
-        self._current: dict[str, Optional[Job]] = {lane: None for lane in LANES}
-        self.last_tick_ts: Optional[float] = None
-        self.jobs_done = 0
+        self.lanes = LaneScheduler({lane: 1 for lane in LANES}, enabled=enabled, paused=paused, clock=clock, tick_s=TICK_S, name="tantalus")
+        # the tick: one registered job that asks the store what is due (the due logic is Tantalus's own)
+        self.lanes.register(_LaneJob("tick", key="tick", fn=lambda: self.enqueue_due(self.clock()), lane="checks", every_s=1.0))
 
     @property
-    def current(self) -> Optional[Job]:
-        return self._current["checks"] or self._current["sweeps"]
+    def last_tick_ts(self) -> Optional[float]:
+        return self.lanes.last_tick_ts
 
-    def _alive(self) -> bool:
-        return any(t.is_alive() for t in self._threads.values())
+    @property
+    def jobs_done(self) -> int:
+        return self.lanes.jobs_done - int(self.lanes._stats.get("tick", {}).get("runs", 0))
 
     # ------------------------------------------------------------------ lifecycle
+    def _alive(self) -> bool:
+        return self.lanes._alive()
+
     def start(self) -> None:
-        if self._alive():
-            return
-        self._stop.clear()
-        for lane in LANES:
-            thread = threading.Thread(target=self._loop, args=(lane,), name=f"tantalus-{lane}", daemon=True)
-            self._threads[lane] = thread
-            thread.start()
+        self.lanes.start()
 
     def stop(self, timeout: float = 5.0) -> None:
-        self._stop.set()
-        for thread in self._threads.values():
-            thread.join(timeout)
+        self.lanes.stop(timeout)
 
     def status(self) -> dict[str, Any]:
-        def view(job: Optional[Job]) -> Optional[dict[str, str]]:
-            return {"kind": job.kind, "ref": job.ref, "reason": job.reason} if job else None
-        cur = self.current
-        return {"enabled": self.enabled, "running": self._alive(), "paused": bool(self.paused()),
-                "queue": sum(q.qsize() for q in self._queues.values()), "current": view(cur),
-                "lanes": {lane: {"queue": self._queues[lane].qsize(), "current": view(self._current[lane])} for lane in LANES},
-                "last_tick_ts": self.last_tick_ts, "jobs_done": self.jobs_done}
+        raw = self.lanes.status()
+
+        def view(job: Optional[dict[str, str]]) -> Optional[dict[str, str]]:
+            return {"kind": job["kind"], "ref": job["key"][len(job["kind"]) + 1:], "reason": job["reason"]} if job else None
+
+        def current(lane: str) -> Optional[dict[str, str]]:
+            running = [j for j in raw["lanes"][lane]["current"] if j["kind"] != "tick"]
+            return view(running[0]) if running else None
+
+        lanes = {lane: {"queue": raw["lanes"][lane]["queue"], "current": current(lane)} for lane in LANES}
+        return {"enabled": self.enabled, "running": raw["running"], "paused": bool(self.paused()),
+                "queue": sum(v["queue"] for v in lanes.values()), "current": lanes["checks"]["current"] or lanes["sweeps"]["current"],
+                "lanes": lanes, "last_tick_ts": raw["last_tick_ts"], "jobs_done": self.jobs_done}
 
     # ------------------------------------------------------------------ queue
-    def submit(self, kind: str, ref: str, reason: str = "manual") -> Optional[Job]:
-        key = (kind, ref)
-        with self._lock:
-            if key in self._pending:
-                return None
-            self._pending.add(key)
-        job = Job(kind, ref, reason)
-        self._queues[lane_of(kind)].put(job)
-        return job
+    def _job(self, kind: str, ref: str, reason: str) -> _LaneJob:
+        return _LaneJob(kind, key=f"{kind}:{ref}", fn=partial(self._execute, kind, ref), lane=lane_of(kind), reason=reason)
+
+    def submit(self, kind: str, ref: str, reason: str = "manual") -> Optional[_LaneJob]:
+        return self.lanes.submit(self._job(kind, ref, reason))
 
     def run_now(self, kind: str, ref: str, timeout: float = 240.0) -> Any:
         """Queue a job and wait for it (used by 'check now'). Without a running loop, run inline."""
-        if not self._alive():
-            return self._execute(Job(kind, ref, "inline"))
-        job = self.submit(kind, ref)
-        if job is None:
-            return {"queued": True, "note": "already queued"}
-        if not job.done.wait(timeout):
-            return {"queued": True, "note": "still running; the result will appear in the history"}
-        if job.error:
-            raise RuntimeError(job.error)
-        return job.result
+        return self.lanes.run_now(self._job(kind, ref, "manual"), timeout)
 
-    def _execute(self, job: Job) -> Any:
+    def _execute(self, kind: str, ref: str) -> Any:
         eng = self.engine
-        if job.kind == "check":
-            return eng.check_target(job.ref)
-        if job.kind == "revalidate":
-            return eng.revalidate(job.ref)
-        if job.kind == "secondhand":
-            return eng.run_secondhand(job.ref)
-        if job.kind == "information":
-            return eng.run_information(job.ref)
-        if job.kind == "discovery":
-            return eng.run_discovery(job.ref)
-        if job.kind in self.extra:
-            return self.extra[job.kind][1](job.ref)
-        raise ValueError(f"unknown job kind {job.kind}")
-
-    # ------------------------------------------------------------------ loop
-    def _loop(self, lane: str) -> None:
-        while not self._stop.is_set():
-            try:
-                job = self._queues[lane].get(timeout=1.0)
-            except queue.Empty:
-                job = None
-            if job is not None:
-                self._run(job, lane)
-                continue
-            if lane != "checks":
-                continue  # one lane owns the tick
-            now = self.clock()
-            if self.last_tick_ts is None or now - self.last_tick_ts >= TICK_S:
-                self.last_tick_ts = now
-                if self.enabled and not self.paused():
-                    try:
-                        self.enqueue_due(now)
-                    except Exception:  # noqa: BLE001
-                        log.exception("scheduler tick failed")
-
-    def _run(self, job: Job, lane: str) -> None:
-        self._current[lane] = job
-        try:
-            job.result = self._execute(job)
-        except Exception as error:  # noqa: BLE001
-            job.error = f"{type(error).__name__}: {error}"
-            log.warning("job %s %s failed: %s", job.kind, job.ref, job.error)
-        finally:
-            with self._lock:
-                self._pending.discard((job.kind, job.ref))
-            self._current[lane] = None
-            self.jobs_done += 1
-            job.done.set()
+        if kind == "check":
+            return eng.check_target(ref)
+        if kind == "revalidate":
+            return eng.revalidate(ref)
+        if kind == "secondhand":
+            return eng.run_secondhand(ref)
+        if kind == "information":
+            return eng.run_information(ref)
+        if kind == "discovery":
+            return eng.run_discovery(ref)
+        if kind in self.extra:
+            return self.extra[kind][1](ref)
+        raise ValueError(f"unknown job kind {kind}")
 
     def enqueue_due(self, now: float) -> int:
         n = 0
