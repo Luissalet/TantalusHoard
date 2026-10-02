@@ -44,7 +44,7 @@ def test_format_price_display():
     assert format_price_display(0.0, True) == "Gratis"
     assert format_price_display(None, False) == "Precio desconocido"
     assert format_price_display(5.0, False) == "5 €"
-    assert format_price_display(5.5, False) == "5.50 €"
+    assert format_price_display(5.5, False) == "5,50 €"  # Spanish decimals, like every other price the app shows
 
 
 def test_price_info_for_listing_prefers_numeric_price_then_raw_text():

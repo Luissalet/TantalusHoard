@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from ..hoard_link.money import find_prices, format_money
+
 _FREE_WORDS = ("gratis", "regalo", "free")
 
-_PRICE_PATTERN = re.compile(
-    r"(?:€\s*(\d+(?:[.,]\d{1,2})?))|(?:(\d+(?:[.,]\d{1,2})?)\s*€)|(?:(\d+(?:[.,]\d{1,2})?)\s*eur\b)",
-    re.IGNORECASE,
-)
 
 
 @dataclass
@@ -34,14 +31,10 @@ def normalize_price(raw_price: Optional[str]) -> PriceInfo:
     lowered = text.lower()
     if any(word in lowered for word in _FREE_WORDS):
         return PriceInfo(0.0, True, text)
-    match = _PRICE_PATTERN.search(lowered)
-    if not match:
+    hit = next((h for h in find_prices(text) if h.currency == "EUR" and h.amount >= 0), None)
+    if hit is None:
         return PriceInfo(None, False, text)
-    raw_number = next(g for g in match.groups() if g is not None)
-    try:
-        value = float(raw_number.replace(",", "."))
-    except ValueError:
-        return PriceInfo(None, False, text)
+    value = float(hit.amount)
     return PriceInfo(value, value == 0.0, text)
 
 
@@ -82,6 +75,4 @@ def format_price_display(price_eur: Optional[float], is_free: bool = False) -> s
         return "Gratis"
     if price_eur is None:
         return "Precio desconocido"
-    if price_eur == int(price_eur):
-        return f"{int(price_eur)} €"
-    return f"{price_eur:.2f} €"
+    return format_money(price_eur, "EUR", trim_zero_cents=True)

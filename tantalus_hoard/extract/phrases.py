@@ -17,6 +17,7 @@ from typing import Any, Iterable, Optional
 
 from bs4 import BeautifulSoup, Tag
 
+from ..hoard_link.money import find_prices as _find_prices, parse_amount
 from ..model import COMING_SOON, IN_STOCK, MARKETPLACE_ONLY, OUT_OF_STOCK, PREORDER, RESTOCK_SCHEDULED, UNKNOWN
 
 _HIDDEN_CLASS = {"hidden", "d-none", "is-hidden", "u-hidden", "hide", "sr-only", "visually-hidden", "is-template"}
@@ -59,39 +60,21 @@ def snippet(text: str, limit: int = EVIDENCE_MAX) -> str:
 
 # ---------------------------------------------------------------------------------------------- numbers
 def parse_number(value: Any) -> Optional[float]:
-    """'1.234,56' -> 1234.56, '1,234.56' -> 1234.56, '59,99' -> 59.99, '499.99' -> 499.99, 12 -> 12.0."""
+    """'1.234,56' -> 1234.56, '1,234.56' -> 1234.56, '59,99' -> 59.99, '499.99' -> 499.99, 12 -> 12.0.
+
+    The commons' ``parse_amount`` decides the separators; free text around the number ("desde 59,99 EUR") is
+    tolerated by reading the first number in it."""
     if value is None or isinstance(value, bool):
         return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    text = re.sub(r"[^\d.,\-]", "", str(value).replace("\xa0", " ").replace(" ", ""))
-    text = text.lstrip("-") if text.count("-") > 1 else text
-    if not re.search(r"\d", text):
-        return None
-    dot, comma = text.rfind("."), text.rfind(",")
-    if dot >= 0 and comma >= 0:  # both present: the right-most one is the decimal mark
-        decimal, thousands = ("," if comma > dot else "."), ("." if comma > dot else ",")
-        text = text.replace(thousands, "").replace(decimal, ".")
-    elif comma >= 0 or dot >= 0:
-        mark = "," if comma >= 0 else "."
-        pieces = text.split(mark)
-        if len(pieces) > 2:                              # 1.234.567 -> thousands
-            text = "".join(pieces)
-        elif len(pieces[-1]) == 3 and len(pieces[0]) <= 3 and pieces[0] not in ("", "0"):
-            text = "".join(pieces)                       # 1.234 / 2,099 -> thousands
-        else:
-            text = pieces[0] + "." + pieces[1]           # 59,99 / 499.99 -> decimal
-    try:
-        return float(text)
-    except ValueError:
-        return None
+    amount = parse_amount(value)
+    if amount is None and isinstance(value, str):
+        match = _FIRST_NUMBER.search(value)
+        amount = parse_amount(match.group(0)) if match else None
+    return float(amount) if amount is not None else None
 
 
-_CUR = r"(?:€|eur\b|euros?\b|\$|usd\b|£|gbp\b)"
-_NUM = r"\d{1,3}(?:[.\s\u00a0]\d{3})+(?:,\d{1,2})?|\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:[.,]\d{1,2})?"
-_PRICE_SUFFIX = re.compile(rf"(?<![\w.,])(?P<num>{_NUM})\s?(?P<cur>{_CUR})", re.I)
-_PRICE_PREFIX = re.compile(rf"(?P<cur>{_CUR})\s?(?P<num>{_NUM})(?![\w])", re.I)
-_CURRENCY = {"€": "EUR", "eur": "EUR", "euro": "EUR", "euros": "EUR", "$": "USD", "usd": "USD", "£": "GBP", "gbp": "GBP"}
+_FIRST_NUMBER = re.compile(r"-?\d[\d.,\s\u00a0]*\d|\d")
+_STANDALONE_LEAD = re.compile(r"^\W{0,3}(?:desde|from|ahora|ahora solo|only|precio|price)?\W{0,3}", re.I)
 
 
 @dataclass
@@ -104,24 +87,11 @@ class PriceHit:
 
 
 def find_prices(text: str) -> list[PriceHit]:
-    """Every price-looking amount in ``text`` in reading order ('1.234,56 €', '€1,234.56', '59,99€')."""
-    hits: dict[int, PriceHit] = {}
-    for regex in (_PRICE_SUFFIX, _PRICE_PREFIX):
-        for match in regex.finditer(text or ""):
-            value = parse_number(match.group("num"))
-            if value is None or value <= 0:
-                continue
-            currency = _CURRENCY.get(match.group("cur").lower(), "EUR")
-            hit = PriceHit(value, currency, match.start(), match.end(), match.group(0))
-            # a suffix and a prefix match can overlap ("$5 EUR"); keep the first found per start
-            hits.setdefault(match.start(), hit)
-    ordered = sorted(hits.values(), key=lambda h: h.start)
-    cleaned: list[PriceHit] = []
-    for hit in ordered:
-        if cleaned and hit.start < cleaned[-1].end:
-            continue
-        cleaned.append(hit)
-    return cleaned
+    """Every price-looking amount in ``text`` in reading order ('1.234,56 €', '€1,234.56', '59,99€'): the commons'
+    ``find_prices`` with the zero / negative amounts (never a shelf price) dropped."""
+    text = text or ""
+    return [PriceHit(float(h.amount), h.currency or "EUR", h.start, h.end, text[h.start:h.end])
+            for h in _find_prices(text) if h.amount > 0]
 
 
 def parse_price(text: str) -> Optional[tuple[float, str]]:
@@ -130,15 +100,31 @@ def parse_price(text: str) -> Optional[tuple[float, str]]:
     return (hits[0].value, hits[0].currency) if hits else None
 
 
-_STANDALONE = re.compile(rf"^\W{{0,3}}(?:desde|from|ahora|ahora solo|only|precio|price)?\W{{0,3}}(?:{_NUM})\s?{_CUR}\W{{0,3}}$|^\W{{0,3}}{_CUR}\s?(?:{_NUM})\W{{0,3}}$", re.I)
+def amount_and_currency(text: str, default: str = "EUR") -> tuple[Optional[float], str]:
+    """``(amount, currency)`` of the first amount in ``text``: a price with a currency marker wins, a bare number
+    is read in ``default``. '119,95 €' -> (119.95, 'EUR'); '€1,234.56' -> (1234.56, 'EUR'); '' -> (None, 'EUR')."""
+    text = (text or "").strip()
+    hits = _find_prices(text)
+    if hits:
+        return float(hits[0].amount), hits[0].currency or default
+    match = _FIRST_NUMBER.search(text)
+    amount = parse_amount(match.group(0)) if match else None
+    return (float(amount) if amount is not None else None), default
 
 
 def standalone_price(text: str) -> Optional[tuple[float, str]]:
     """The price of a text node that is *only* a price ('59,99 €', 'Desde 12,99€'); ``None`` for prose."""
     text = (text or "").strip()
-    if len(text) > 32 or not _STANDALONE.match(text):
+    if len(text) > 32:
         return None
-    return parse_price(text)
+    rest = text[_STANDALONE_LEAD.match(text).end():]
+    hits = find_prices(rest)
+    if len(hits) != 1:
+        return None
+    hit = hits[0]
+    if hit.start != 0 or len(rest[hit.end:]) > 3 or re.search(r"\w", rest[hit.end:]):
+        return None
+    return hit.value, hit.currency
 
 
 # ---------------------------------------------------------------------------------------------- dates

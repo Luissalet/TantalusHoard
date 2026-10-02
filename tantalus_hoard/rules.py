@@ -10,6 +10,7 @@ import hashlib
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from .hoard_link.money import format_money
 from .model import (BUYABLE, COMING_SOON, IN_STOCK, LOCAL_PICKUP, LOCAL_RESTOCK, MARKETPLACE_ONLY, OUT_OF_STOCK, PREORDER,
                     PREORDER_OPEN, PRICE_DROP, PRICE_THRESHOLD_CROSSED, RESTOCK, RESTOCK_DATE_CONFIRMED,
                     RESTOCK_SCHEDULED, SALE_OPEN, SELLER_ANY_BELOW, SELLER_RETAIL_ONLY, SOLD_OUT, UNKNOWN, Offer)
@@ -174,7 +175,7 @@ def transitions(*, target: dict[str, Any], prev_state: str, prev_price: Optional
 def summary_for(kind: str, *, title: str, retailer: str, state: str, price: Optional[float], currency: str,
                 old_price: Optional[float] = None, extra: Optional[dict[str, Any]] = None) -> str:
     extra = extra or {}
-    money = f"{price:,.2f} {currency or 'EUR'}".replace(",", "X").replace(".", ",").replace("X", ".") if price is not None else "precio desconocido"
+    money = format_money(price, currency or "EUR") if price is not None else "precio desconocido"
     where = f" en {retailer}" if retailer else ""
     if kind == RESTOCK:
         base = f"{title}: disponible{where} por {money}"
@@ -192,7 +193,7 @@ def summary_for(kind: str, *, title: str, retailer: str, state: str, price: Opti
     elif kind == SOLD_OUT:
         base = f"{title}: agotado{where} ({STATE_LABEL_ES.get(state, state)})"
     elif kind == PRICE_DROP:
-        old = f"{old_price:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if old_price is not None else "?"
+        old = format_money(old_price, currency or "EUR").rsplit(" ", 1)[0] if old_price is not None else "?"
         base = f"{title}: baja de {old} a {money}{where} (−{extra.get('drop_pct')} %)"
         if extra.get("all_time_low"):
             base += ", mínimo histórico"

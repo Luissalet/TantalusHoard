@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..hoard_link.money import format_money
 from ..model import (CANDIDATE_FOUND, EVENT_TYPES, INFO_CHANGE, LISTING_PRICE_DROP, LOCAL_RESTOCK, MAIL_DEAL, NEEDS_HUMAN, NEW_LISTING, NEW_SKU,
                      PREORDER_OPEN, PRICE_DROP, PRICE_THRESHOLD_CROSSED, RELEASE, RESTOCK, RESTOCK_DATE_CONFIRMED, SALE_OPEN, SOLD_OUT)
 
@@ -42,16 +43,12 @@ def label(event_type: str, lang: str = "es") -> str:
 
 
 def format_price(price: Any, currency: Any, lang: str = "es") -> str:
+    """'1.234,56 €' (Spanish) or '€1,234.56' (English); whole amounts drop the cents ('50 €'). '' when ``price`` is no number."""
     try:
         value = float(price)
     except (TypeError, ValueError):
         return ""
-    text = f"{value:,.2f}"
-    text = text.replace(",", "X").replace(".", ",").replace("X", ".") if lang == "es" else text
-    if text.endswith((",00", ".00")):
-        text = text[:-3]
-    cur = {"EUR": "€", "USD": "$", "GBP": "£"}.get(str(currency or "EUR").upper(), str(currency or ""))
-    return f"{text} {cur}".strip() if lang == "es" else f"{cur}{text}" if cur in ("$", "£", "€") else f"{text} {cur}".strip()
+    return format_money(value, str(currency or "EUR").upper(), "es" if lang == "es" else "en", trim_zero_cents=True)
 
 
 def compose(event: dict[str, Any], lang: str = "es") -> tuple[str, str]:

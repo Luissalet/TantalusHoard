@@ -25,6 +25,7 @@ from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
+from ..extract.phrases import amount_and_currency
 from ..model import IN_STOCK, OUT_OF_STOCK, PREORDER, UNKNOWN
 
 NET = "https://stocktcg.net"
@@ -39,8 +40,6 @@ CHAIN_HOSTS = {"game": "game.es", "carrefour": "carrefour.es", "el-corte-ingles"
 
 _MONTHS = {"enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6, "julio": 7, "agosto": 8, "septiembre": 9,
            "setiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12}
-_CURRENCIES = {"€": "EUR", "eur": "EUR", "sek": "SEK", "dkk": "DKK", "chf": "CHF", "£": "GBP", "gbp": "GBP", "pln": "PLN",
-               "nok": "NOK", "czk": "CZK", "$": "USD", "usd": "USD"}
 
 
 @dataclass
@@ -112,28 +111,8 @@ def slugify(name: str) -> str:
 
 
 def parse_price(text: str) -> tuple[Optional[float], str]:
-    """'119,95 €' -> (119.95, 'EUR'); '1.599,00 SEK' -> (1599.0, 'SEK'); '' -> (None, 'EUR')."""
-    text = (text or "").strip()
-    if not text:
-        return None, "EUR"
-    currency = "EUR"
-    low = text.lower()
-    for sign, code in _CURRENCIES.items():
-        if sign in low:
-            currency = code
-            break
-    match = re.search(r"\d[\d.\s]*(?:,\d{1,2})?|\d+(?:\.\d{1,2})?", text)
-    if not match:
-        return None, currency
-    raw = match.group(0).replace(" ", "")
-    if "," in raw:
-        raw = raw.replace(".", "").replace(",", ".")
-    elif raw.count(".") == 1 and len(raw.split(".")[1]) == 3:
-        raw = raw.replace(".", "")
-    try:
-        return float(raw), currency
-    except ValueError:
-        return None, currency
+    """'119,95 €' -> (119.95, 'EUR'); '1.599,00 SEK' -> (1599.0, 'SEK'); '€1,234.56' -> (1234.56, 'EUR'); '' -> (None, 'EUR')."""
+    return amount_and_currency(text)
 
 
 def _text(node: Optional[Tag]) -> str:

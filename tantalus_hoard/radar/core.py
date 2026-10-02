@@ -28,6 +28,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 
+from ..hoard_link.money import format_money
 from ..engine import fold, offer_matches
 from ..extract import extract, profile_for_host
 from ..mail.parse import madrid_offset
@@ -85,10 +86,8 @@ def nice_date(iso: str) -> str:
 
 
 def money(price: Optional[float], currency: str = "EUR") -> str:
-    if price is None:
-        return ""
-    text = f"{price:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    return f"{text} €" if (currency or "EUR") == "EUR" else f"{text} {currency}"
+    """'1.234,56 €' (other currencies by symbol or code); '' without a price."""
+    return format_money(price, currency or "EUR") if price is not None else ""
 
 
 def _augment(text: str, source: str = "", game: str = "") -> str:

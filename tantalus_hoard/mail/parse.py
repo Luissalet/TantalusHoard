@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlunparse
 
+from ..hoard_link.money import find_prices as _find_prices, parse_amount as _parse_amount
 from .stores import domain_matches, domain_of
 
 MAX_TITLES = 12
@@ -48,43 +49,15 @@ def clean_title(text: Any, limit: int = 140) -> str:
 
 
 # ----------------------------------------------------------------------------- numbers
-PRICE_RE = re.compile(
-    r"(?P<pre>[\u20ac$\u00a3])\s?(?P<a>\d[\d.,]*\d|\d)(?![\d.,]*\s?%)|(?P<b>\d[\d.,]*\d|\d)\s?(?P<post>\u20ac|eur\b|usd\b|\$|\u00a3)",
-    re.I)
-CURRENCY = {"\u20ac": "EUR", "eur": "EUR", "$": "USD", "usd": "USD", "\u00a3": "GBP"}
-
-
 def parse_amount(raw: str) -> float | None:
-    """``1.299,99`` / ``19,99`` / ``19.99`` / ``1,299.50`` -> float."""
-    s = str(raw or "").strip().replace(" ", "")
-    if not s or not any(c.isdigit() for c in s):
-        return None
-    if "," in s and "." in s:
-        dec = "," if s.rfind(",") > s.rfind(".") else "."
-        s = s.replace("," if dec == "." else ".", "").replace(dec, ".")
-    elif "," in s:  # one separator: three digits after it are thousands ("1,299"), one or two are decimals ("19,99")
-        head, _, tail = s.rpartition(",")
-        s = head.replace(",", "") + tail if (s.count(",") > 1 or len(tail) == 3) else head.replace(",", "") + "." + tail
-    elif "." in s:
-        head, _, tail = s.rpartition(".")
-        if s.count(".") > 1 or len(tail) == 3:
-            s = s.replace(".", "")
-    try:
-        value = float(s)
-    except ValueError:
-        return None
-    return value if 0 < value < 100000 else None
+    """``1.299,99`` / ``19,99`` / ``19.99`` / ``1,299.50`` -> float (the commons' rules); ``None`` outside (0, 100000)."""
+    value = _parse_amount(raw)
+    return float(value) if value is not None and 0 < value < 100000 else None
 
 
 def prices(text: str) -> list[tuple[int, float, str]]:
-    """Every price in the text as ``(position, amount, currency)``."""
-    out = []
-    for m in PRICE_RE.finditer(text or ""):
-        amount = parse_amount(m.group("a") or m.group("b"))
-        symbol = (m.group("pre") or m.group("post") or "").lower()
-        if amount is not None:
-            out.append((m.start(), amount, CURRENCY.get(symbol, "")))
-    return out
+    """Every price in the text as ``(position, amount, currency)``; a number needs a currency marker (``%`` is none)."""
+    return [(h.start, float(h.amount), h.currency) for h in _find_prices(text or "") if 0 < h.amount < 100000]
 
 
 DISC_NEG = re.compile(r"(?<![\w.,])[-\u2212\u2013]\s?(\d{1,3})\s?%")
