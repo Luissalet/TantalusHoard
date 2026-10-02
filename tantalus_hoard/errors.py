@@ -2,40 +2,28 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
+
+from .hoard_link.agentkit import AppError
 
 
-class TantalusError(Exception):
+class TantalusError(AppError):
     """An expected, explainable failure: a stable ``code``, a human ``message`` and an actionable ``hint``.
 
     ``status`` is the HTTP status the REST layer uses; ``details`` carries structured extras (for
-    example the per-field issues of an invalid strategy spec).
+    example the per-field issues of an invalid strategy spec). The body and the status table come from the commons' ``AppError``.
     """
 
-    STATUS = {
+    STATUS: Mapping[str, int] = {
+        **AppError.STATUS,
         "fetch_failed": 502,
         "blocked": 409,
         "needs_human": 409,
         "rate_limited": 429,
-        "not_found": 404,
-        "confirm_required": 400,
         "unsafe_url": 400,
         "robots_disallowed": 409,
         "channel_not_configured": 400,
-        "offline": 503,
     }
 
     def __init__(self, code: str, message: str, hint: str = "", *, status: int | None = None, **details: Any):
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.hint = hint
-        self.status = status or self.STATUS.get(code, 400)
-        self.details = details
-
-    def to_dict(self) -> dict[str, Any]:
-        body: dict[str, Any] = {"error": self.message, "code": self.code}
-        if self.hint:
-            body["hint"] = self.hint
-        body.update(self.details)
-        return body
+        super().__init__(code, message, hint=hint, status=status, details=details)

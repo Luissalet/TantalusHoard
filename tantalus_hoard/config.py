@@ -6,51 +6,11 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .guard import parse_allowed_hosts
+from .hoard_link.appconfig import AppPaths, env_flag, env_float, env_int, env_str, load_dotenv
+from .hoard_link.guard import parse_allowed_hosts
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PORT = 5197
-
-
-def _env(name: str, default: str = "") -> str:
-    return os.environ.get(name, default).strip()
-
-
-def _int(raw: str, default: int, low: int, high: int) -> int:
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        return default
-    return value if low <= value <= high else default
-
-
-def _float(raw: str, default: float, low: float, high: float) -> float:
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return default
-    return value if low <= value <= high else default
-
-
-def load_dotenv(path: Path) -> dict[str, str]:
-    """Minimal .env reader (KEY=VALUE, # comments, optional quotes). Never overrides the real environment."""
-    values: dict[str, str] = {}
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return values
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip()
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        if key:
-            values[key] = value
-    return values
 
 
 @dataclass
@@ -69,20 +29,25 @@ class Config:
     secrets: dict[str, str] = field(default_factory=dict)  # from .env (+ environment); never written back
 
     @property
+    def paths(self) -> AppPaths:
+        """The folder layout every app shares (database, token, url, logs, backend.json, cache)."""
+        return AppPaths("tantalus", REPO_ROOT, self.data_dir, self.data_dir_configured)
+
+    @property
     def db_path(self) -> Path:
-        return self.data_dir / "tantalus.db"
+        return self.paths.db_path
 
     @property
     def token_path(self) -> Path:
-        return self.data_dir / "mcp-token"
+        return self.paths.token_path
 
     @property
     def url_path(self) -> Path:
-        return self.data_dir / "url"
+        return self.paths.url_path
 
     @property
     def cache_dir(self) -> Path:
-        return self.data_dir / "cache"
+        return self.paths.cache_dir
 
     @property
     def browser_profile_dir(self) -> Path:
@@ -94,11 +59,11 @@ class Config:
 
     @property
     def logs_dir(self) -> Path:
-        return self.data_dir / "logs"
+        return self.paths.logs_dir
 
     @property
     def backend_json_path(self) -> Path:
-        return self.data_dir / "backend.json"
+        return self.paths.backend_json_path
 
     def secret(self, name: str) -> str:
         """Environment first, then .env. ``name`` without the TANTALUS_ prefix (e.g. TELEGRAM_TOKEN)."""
@@ -107,17 +72,16 @@ class Config:
 
     @classmethod
     def from_env(cls) -> "Config":
-        raw_dir = _env("TANTALUS_DATA_DIR")
-        port = _int(_env("TANTALUS_PORT") or _env("PORT") or str(DEFAULT_PORT), DEFAULT_PORT, 1, 65535)
+        raw_dir = env_str("TANTALUS_DATA_DIR")
         return cls(
             data_dir=Path(raw_dir).expanduser() if raw_dir else REPO_ROOT / "data",
-            port=port,
-            port_strict=_env("PORT_STRICT") == "1",
-            allowed_hosts=parse_allowed_hosts(_env("TANTALUS_ALLOWED_HOSTS")),
+            port=env_int("TANTALUS_PORT", "PORT", default=DEFAULT_PORT, minimum=1, maximum=65535),
+            port_strict=env_flag("PORT_STRICT"),
+            allowed_hosts=parse_allowed_hosts(env_str("TANTALUS_ALLOWED_HOSTS")),
             data_dir_configured=bool(raw_dir),
-            http_timeout_s=_float(_env("TANTALUS_HTTP_TIMEOUT_S"), 25.0, 2.0, 120.0),
-            offline=_env("TANTALUS_OFFLINE") == "1",
-            scheduler=_env("TANTALUS_SCHEDULER", "1") != "0",
-            browser=_env("TANTALUS_BROWSER", "1") != "0",
+            http_timeout_s=env_float("TANTALUS_HTTP_TIMEOUT_S", default=25.0, minimum=2.0, maximum=120.0),
+            offline=env_flag("TANTALUS_OFFLINE"),
+            scheduler=env_flag("TANTALUS_SCHEDULER", True),
+            browser=env_flag("TANTALUS_BROWSER", True),
             secrets=load_dotenv(REPO_ROOT / ".env"),
         )

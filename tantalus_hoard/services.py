@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import logging
-import secrets as _secrets
 import threading
 import time
 from typing import Any, Callable, Optional
@@ -18,6 +17,7 @@ from .db import Database
 from .engine import Engine
 from .errors import TantalusError
 from .fetch import Fetcher
+from .hoard_link.tokens import read_or_create_token, write_url
 from .info import InfoSentry
 from .llm import LLM
 from .mail.deals import DEFAULTS as MAIL_DEFAULTS, NUMERIC as MAIL_NUMERIC, MailDeals
@@ -54,31 +54,6 @@ UI_SETTINGS = {
 }
 
 
-def write_token(config: Config) -> str:
-    """The MCP token is persistent: created once, reused on every later start."""
-    config.data_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        existing = config.token_path.read_text(encoding="utf-8").strip()
-    except OSError:
-        existing = ""
-    if len(existing) >= 32:
-        return existing
-    token = _secrets.token_hex(32)
-    config.token_path.write_text(token, encoding="utf-8")
-    try:
-        config.token_path.chmod(0o600)
-    except OSError:
-        pass
-    return token
-
-
-def write_url(config: Config) -> None:
-    try:
-        config.url_path.write_text(f"http://127.0.0.1:{config.port}", encoding="utf-8")
-    except OSError:
-        pass
-
-
 class Services:
     def __init__(self, config: Config, *, link: Any = None, http_transport: Optional[httpx.BaseTransport] = None,
                  clock_fn: Callable[[], float] = time.time, sleep_fn: Callable[[float], None] = time.sleep,
@@ -88,8 +63,8 @@ class Services:
         self.started_at = time.time()
         for d in (config.data_dir, config.cache_dir, config.logs_dir):
             d.mkdir(parents=True, exist_ok=True)
-        self.token = write_token(config)
-        write_url(config)
+        self.token = read_or_create_token(config.token_path)       # stable across restarts: the bridge reads the same file
+        write_url(config.url_path, f"http://127.0.0.1:{config.port}")
         self.db = Database(config.db_path)
         self.store = Store(self.db, clock_fn)
         self._load_secrets()

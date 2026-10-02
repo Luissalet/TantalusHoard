@@ -5,7 +5,7 @@ from conftest import make_config
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tantalus_hoard.guard import check_request, host_of, install_guard, is_allowed_host, parse_allowed_hosts
+from tantalus_hoard.hoard_link.guard import check_request, host_of, install_guard, is_allowed_host, parse_allowed_hosts
 from tantalus_hoard.main import create_app
 
 NAV = {"sec-fetch-site": "cross-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document"}
@@ -21,16 +21,17 @@ def test_host_of_strips_scheme_path_port_and_case():
 
 
 def test_parse_allowed_hosts():
-    assert parse_allowed_hosts(" pc.example , *.TS.net,, pc2.example:8443") == ("pc.example", "*.ts.net", "pc2.example")
+    # an entry that names a port is pinned to it (the commons' rule; it used to match every port)
+    assert parse_allowed_hosts(" pc.example , *.TS.net,, pc2.example:8443") == ("pc.example", "*.ts.net", "pc2.example:8443")
     assert parse_allowed_hosts(None) == () and parse_allowed_hosts("*.") == ()
 
 
 def test_is_allowed_host_exact_wildcard_unknown():
     allowed = parse_allowed_hosts("pc.example,*.ts.net")
     for host in ("localhost", "127.0.0.1", "[::1]", "pc.example", "my-pc.ts.net", "a.b.ts.net"):
-        assert is_allowed_host(host, allowed), host
+        assert is_allowed_host(host, None, allowed), host
     for host in ("ts.net", "evil.example", "pc.example.evil", "", None):
-        assert not is_allowed_host(host, allowed), host
+        assert not is_allowed_host(host, None, allowed), host
 
 
 def test_check_request_fetch_metadata_rules():
@@ -46,7 +47,7 @@ def test_check_request_fetch_metadata_rules():
 
 def test_middleware_blocks_cross_site_embeds_and_fetches():
     app = FastAPI()
-    install_guard(app, parse_allowed_hosts("*.ts.net"))
+    install_guard(app, port_getter=lambda: 5191, allowed_hosts=parse_allowed_hosts("*.ts.net"))
 
     @app.get("/")
     def home():
