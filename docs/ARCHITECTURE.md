@@ -18,10 +18,24 @@ municipality table, toast notifier, scheduler with a floor.
 - `tantalus_hoard/model.py` — states, event types, modes, policies, dataclasses (`FetchResult`, `Offer`,
   `Extraction`, `SearchHit`, `RawListing`, `ScoreSignal`, `ListingScore`, `InfoFinding`).
 - `tantalus_hoard/config.py` — `Config` (data dirs, `offline`, `browser`, `secret(name)`).
-- `tantalus_hoard/errors.py` — `TantalusError(code, message, hint, status=..., **details)`.
+- `tantalus_hoard/errors.py` — `TantalusError(code, message, hint, status=..., **details)`, a subclass of the commons' `AppError`.
 - `tantalus_hoard/db.py` — schema (read it for column names).
 - `tantalus_hoard/llm.py` — `LLM.json(system, user, required=(...))` → dict | None; `page_block(text)`;
   `UNTRUSTED` preamble. Everything must work when it returns None.
+
+## Shared code (`tantalus_hoard/hoard_link/`, vendored, never edited here)
+
+Everything that is not specific to watching products comes from the family library: the fetcher and its
+safety, robots, block detection and headless-browser rung (`web.fetch`, `web.browser`; `fetch/` keeps only the SQL
+host-state and robots stores and the hub path), web search and page/feed change detection (`web.search`, `web.watch`),
+readable text, JSON-LD and page metadata (`web.htmltext`, `web.meta`), every money parse and format (`money`), link
+unwrapping and registrable domains (`web.urls`), EAN/ISBN/ASIN checks (`idcheck`), notification channels and routing
+(`notify_channels`, `fam_notify.Router`), the mail helper that runs under Faustus's Python (`mail_helper`, `fam_mail`),
+background lanes (`lanes.LaneScheduler`), the SQLite wrapper (`sqlkit.Database`), the request guard (`guard`), config,
+token and URL files (`appconfig`, `tokens`), ULID ids (`ids`), the agent tool kit and `/api/agent/*` router
+(`agentkit`), the app shell (`service`: error envelope, PWA, SPA, health, `run_main`) and the MCP bridge (`bridge`).
+Tantalus-local: the offer model, the walker that builds `Offer`s from JSON-LD and microdata, the store
+definitions, the rule engine, the second-hand packs, the radar and the mail-deal parser.
 
 ## Rules for every module
 
@@ -94,7 +108,7 @@ multiplier). `score_listing(listing, pack, settings, llm=None) -> ListingScore`.
 - `info.py`: sources = page (readable-text diff with quality gate), feed (RSS/Atom), search (queries);
   materiality = rules (new numbers with €/$, dates, "preorder/reserva", "precio", "disponible", SKU
   terms, official domain) + optional LLM judge returning verdict confirmed|leak|estimate|irrelevant.
-- `notify/`: channels `toast` (winotify when installed, PowerShell BurntToast-free fallback), `hub`
-  (family.emit), `ntfy` (server + topic), `telegram` (bot token + chat id), `email` (SMTP). Secrets from
-  `config.secret(...)` / write-only settings; `Notifier.send(event: dict, channels) -> list[dict]`,
+- `notify/`: channels `toast`, `hub`, `ntfy`, `telegram`, `email` come from `hoard_link.notify_channels`; a
+  `fam_notify.Router` decides where an alert goes (the hub when it takes it, the app's own channels otherwise).
+  Secrets from `config.secret(...)` / write-only settings; `Notifier.send(event: dict, channels) -> list[dict]`,
   `Notifier.test(channel)`.

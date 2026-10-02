@@ -684,7 +684,8 @@ Annotations: none.
 
 ## REST routes for the UI
 
-- `GET /api/health`, `GET /api/status`
+- `GET /api/health` (the shared probe: `service`, `version`, `dataDirConfigured`, `offline`, `counts`, `scheduler`, `hoard_link`), `GET /api/status`
+- `GET /api/agent/tools` (catalogue, no token) and `POST /api/agent/call` (Bearer token) are the MCP bridge's routes. Every error is JSON `{error, code?, hint?, details?, issues?}`: 400 `invalid_arguments` for bad arguments, 401 for a wrong token, 404 `unknown_tool`/`not_found`, and the app's own codes (`fetch_failed` 502, `blocked`/`needs_human`/`robots_disallowed` 409, `rate_limited` 429, `unsafe_url` 400...). An unknown `/api/*` path is a JSON 404.
 - `GET /api/dashboard` — news (unseen confirmed events), buyable now, needs human, watchers, top listings, material news, proposed URLs, recent events, scheduler.
 - `POST /api/dashboard/visit` — marks everything seen and records the visit.
 - `POST /api/ui/call` `{name, arguments}` — any tool above, uncapped.

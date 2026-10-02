@@ -138,6 +138,10 @@ Page text, titles, snippets and mail subjects are third-party data. Tool results
 - **Mail deals.** They need Faustus with a mail account. Parsing is by rules on the mails' text: a store that changes its mail layout can yield a campaign row instead of per-item rows. The book-collection app is a cloud database with no local file, so book wishlists come only from your own list in Settings. The game library file is read from `mail.deals.gamerhoard_file`, `GAMERHOARD_DATA_FILE` or `~/.gamerhoard/library.json`; without it only your own list, the store wishlist mails and the watchers match.
 - **Facebook.** Facebook's terms forbid automated access. The Marketplace source is off by default and uses your own session in the app's browser profile.
 
+## Shared code
+
+Everything that is not specific to watching products comes from the family's vendored library (`tantalus_hoard/hoard_link/`, the same files in every app): the fetcher with its safety, robots and block checks and the headless-browser step, web search, change detection for pages and feeds, readable text and JSON-LD/metadata reading, all price parsing and formatting, link unwrapping, EAN/ISBN/ASIN checks, the notification channels and router, the mail helper, the background lanes, the SQLite wrapper, the request guard, config and token files, ULID ids, the MCP tool kit and bridge, and the app shell (error format, PWA, built UI, health probe, `python -m` start-up). What stays in Tantalus is the product knowledge: offers and the walker that builds them, store definitions, the rule engine, second-hand packs, the radar and the mail-deal parser. Behaviour you may notice: new records get ULID ids (old ids keep working), an allowed host written with a port is pinned to that port, and API errors are always JSON with a `code`.
+
 ## Tests
 
 ```sh

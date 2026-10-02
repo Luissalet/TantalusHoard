@@ -164,6 +164,10 @@ El texto de las páginas, los títulos, los fragmentos y los asuntos de los corr
 - **Ofertas del correo.** Necesitan Faustus con una cuenta de correo. El análisis es por reglas sobre el texto de los correos: si una tienda cambia el diseño del suyo, puede salir una fila de campaña en vez de una por artículo. La app de colección de libros es una base de datos en la nube sin archivo local, así que las listas de libros solo salen de tu propia lista en Ajustes. La biblioteca de juegos se lee de `mail.deals.gamerhoard_file`, `GAMERHOARD_DATA_FILE` o `~/.gamerhoard/library.json`; sin ella solo coinciden tu lista, los correos de deseados de la tienda y los vigilantes.
 - **Facebook.** Sus condiciones prohíben el acceso automatizado. Marketplace está desactivado por defecto y usa tu propia sesión en el perfil del navegador de la app.
 
+## Código compartido
+
+Todo lo que no es específico de vigilar productos viene de la biblioteca vendorizada de la familia (`tantalus_hoard/hoard_link/`, los mismos archivos en todas las apps): el descargador con sus comprobaciones de seguridad, robots y bloqueos y el paso del navegador sin ventana, la búsqueda web, la detección de cambios en páginas y feeds, la lectura de texto legible y de JSON-LD/metadatos, todo el análisis y formato de precios, el desenvuelto de enlaces, las comprobaciones de EAN/ISBN/ASIN, los canales y el enrutador de avisos, el ayudante de correo, los carriles de segundo plano, el envoltorio de SQLite, el guarda de peticiones, los archivos de configuración y token, los ids ULID, el kit de herramientas y el puente MCP, y la carcasa de la app (formato de errores, PWA, interfaz compilada, sonda de salud, arranque con `python -m`). Lo que queda en Tantalus es el conocimiento de productos: ofertas y el recorrido que las construye, definiciones de tiendas, el motor de reglas, los packs de segunda mano, el radar y el analizador de ofertas del correo. Cambios que puedes notar: los registros nuevos usan ids ULID (los antiguos siguen funcionando), un host permitido escrito con puerto queda fijado a ese puerto y los errores de la API son siempre JSON con un `code`.
+
 ## Tests
 
 ```sh
