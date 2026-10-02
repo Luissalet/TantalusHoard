@@ -11,22 +11,17 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
+from ..hoard_link.web.urls import registrable_domain
 from .stores import CONSUMER_TANTALUS, consumers_for, domain_of
 
 PROMO_CATEGORIES = {"promotions", "social", "forums"}
-SECOND_LEVEL = {"co", "com", "org", "net", "gov", "ac", "edu", "or", "ne"}
 ANGLE = re.compile(r"<([^<>]+)>")
 MIN_NOISE_MAILS = 3
 
 
 def registrable(domain: str) -> str:
-    """``news.mail.example.com`` -> ``example.com``; ``shop.example.co.uk`` -> ``example.co.uk`` (a good-enough rule, no public-suffix list)."""
-    labels = [p for p in domain.lower().strip(".").split(".") if p]
-    if len(labels) <= 2:
-        return ".".join(labels)
-    if len(labels[-1]) == 2 and labels[-2] in SECOND_LEVEL:
-        return ".".join(labels[-3:])
-    return ".".join(labels[-2:])
+    """``news.mail.example.com`` -> ``example.com``; ``shop.example.co.uk`` -> ``example.co.uk`` (the commons' suffix rules)."""
+    return registrable_domain(domain) or domain.lower().strip(".")
 
 
 def unsubscribe_links(value: str) -> dict[str, str]:

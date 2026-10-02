@@ -15,9 +15,10 @@ import re
 import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlunparse
+from urllib.parse import urlparse
 
 from ..hoard_link.money import find_prices as _find_prices, parse_amount as _parse_amount
+from ..hoard_link.web.urls import clean_url as _clean_url, unwrap_redirect
 from .stores import domain_matches, domain_of
 
 MAX_TITLES = 12
@@ -237,9 +238,6 @@ def titles_from(images: Any, exclude: str = "") -> list[str]:
     return out
 
 
-REDIRECT_KEYS = ("url", "u", "redirect", "redirect_url", "redirecturl", "link", "target", "dest", "destination", "to", "r", "q")
-TRACK_PREFIXES = ("utm_", "mc_", "_hs")
-TRACK_EXACT = ("snr", "ser", "gclid", "fbclid", "cid", "eid", "c2id", "goal", "mkt_tok", "e")
 SKIP_LINK = ("unsubscribe", "darse-de-baja", "darsedebaja", "preferenc", "optout", "opt-out", "manage-subscription", "mailchi.mp", "list-manage.com",
              "view-in-browser", "viewinbrowser", "webversion", "privacy", "privacidad", "terms", "condiciones", "mailto:", "facebook.com",
              "instagram.com", "twitter.com", "youtube.com", "tiktok.com", "linkedin.com", "pinterest.com", "/help", "/ayuda")
@@ -247,28 +245,13 @@ SKIP_LINK = ("unsubscribe", "darse-de-baja", "darsedebaja", "preferenc", "optout
 
 def unwrap(url: str) -> str:
     """The destination of a redirect link that carries it as a parameter (never fetched, only read from the text)."""
-    for _ in range(2):
-        try:
-            query = parse_qsl(urlparse(url).query, keep_blank_values=False)
-        except ValueError:
-            break
-        inner = next((unquote(v) for k, v in query if k.lower() in REDIRECT_KEYS and unquote(v).lower().startswith("http")), "")
-        if not inner:
-            break
-        url = inner
-    return url
+    return unwrap_redirect(url, max_hops=2)
 
 
 def clean_url(url: str) -> str:
-    """Drop the tracking parameters and the fragment; keep the rest of the link exactly as the mail has it."""
-    url = unwrap(str(url or "").strip())
-    try:
-        parts = urlparse(url)
-        keep = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
-                if k.lower() not in TRACK_EXACT and not k.lower().startswith(TRACK_PREFIXES)]
-        return urlunparse(parts._replace(query=urlencode(keep), fragment=""))[:600]
-    except ValueError:
-        return url[:600]
+    """Drop the tracking parameters (the mail ones too) and the fragment; keep the rest of the link exactly as the
+    mail has it."""
+    return _clean_url(str(url or "").strip(), mail=True, max_len=600)
 
 
 def store_links(links: Any, store: dict[str, Any]) -> list[tuple[str, str]]:
