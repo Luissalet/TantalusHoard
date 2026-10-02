@@ -4,8 +4,6 @@ import json
 import smtplib
 from types import SimpleNamespace
 
-import httpx
-
 from tantalus_hoard import model
 from tantalus_hoard.hoard_link import family
 from tantalus_hoard.notify import CHANNELS, Notifier, build_toast_ps1, compose, label, telegram_discover_chat_id, xml_escape
@@ -162,82 +160,77 @@ def test_hub_emits_family_event(monkeypatch):
 
 
 # ------------------------------------------------------------------ ntfy
+class Http:
+    """Stands in for the commons' ``http_json``: records every call and answers ``(status, json)`` (or ``(None, "<ErrorName>")``)."""
+
+    def __init__(self, status=200, data=None, error=None, fn=None):
+        self.status, self.data, self.error, self.fn, self.calls = status, data, error, fn, []
+
+    def __call__(self, url, payload=None, headers=None, timeout=10.0):
+        self.calls.append({"url": url, "payload": payload, "headers": headers or {}})
+        if self.fn is not None:
+            return self.fn(url, payload)
+        return (None, self.error) if self.error else (self.status, self.data)
+
+
 def test_ntfy_json_publish():
-    seen = []
-
-    def handler(req: httpx.Request):
-        seen.append(req)
-        return httpx.Response(200, json={"id": "x"})
-
-    n = make(Cfg(NTFY_TOPIC="topic-1", NTFY_TOKEN="tk_secret"), {"notify__ntfy__enabled": "1", "notify__ntfy__server": "https://ntfy.example/"},
-             transport=httpx.MockTransport(handler))
+    http = Http(data={"id": "x"})
+    n = make(Cfg(NTFY_TOPIC="topic-1", NTFY_TOKEN="tk_secret"), {"notify__ntfy__enabled": "1", "notify__ntfy__server": "https://ntfy.example/"}, http=http)
     res = n.send(EVENT, ["ntfy"])
     assert res[0]["ok"]
-    req = seen[0]
-    body = json.loads(req.content)
-    assert str(req.url) == "https://ntfy.example/" and req.headers["authorization"] == "Bearer tk_secret"
+    call = http.calls[0]
+    body = call["payload"]
+    assert call["url"] == "https://ntfy.example/" and call["headers"]["Authorization"] == "Bearer tk_secret"
     assert body["topic"] == "topic-1" and body["priority"] == 5 and body["click"] == EVENT["url"] and body["title"].startswith("Bajada de precio")
     assert body["tags"] == ["chart_with_downwards_trend"] and "más" in body["title"] and body["attach"] == EVENT["image"]
-    assert json.loads(make(Cfg(NTFY_TOPIC="t"), {"notify__ntfy__enabled": "1"}, transport=httpx.MockTransport(
-        lambda r: seen.append(r) or httpx.Response(200))).send({**EVENT, "severity": "medium", "confidence": 50}, ["ntfy"]) and seen[-1].content)["priority"] == 3
+    medium = Http()
+    make(Cfg(NTFY_TOPIC="t"), {"notify__ntfy__enabled": "1"}, http=medium).send({**EVENT, "severity": "medium", "confidence": 50}, ["ntfy"])
+    assert medium.calls[0]["payload"]["priority"] == 3
 
 
 def test_ntfy_topic_from_settings_default_server_and_failures():
-    seen = []
-    n = make(Cfg(), {"notify__ntfy__enabled": "1", "notify__ntfy__topic": "from-db"},
-             transport=httpx.MockTransport(lambda r: seen.append(r) or httpx.Response(403)))
-    res = n.send(EVENT, ["ntfy"])
-    assert str(seen[0].url) == "https://ntfy.sh/" and json.loads(seen[0].content)["topic"] == "from-db" and res[0]["error"] == "http 403"
-
-    def boom(req):
-        raise httpx.ConnectError("refused for https://ntfy.sh/from-db")
-
-    res = make(Cfg(NTFY_TOPIC="from-secret"), {"notify__ntfy__enabled": "1"}, transport=httpx.MockTransport(boom)).send(EVENT, ["ntfy"])
+    http = Http(status=403)
+    res = make(Cfg(), {"notify__ntfy__enabled": "1", "notify__ntfy__topic": "from-db"}, http=http).send(EVENT, ["ntfy"])
+    assert http.calls[0]["url"] == "https://ntfy.sh/" and http.calls[0]["payload"]["topic"] == "from-db" and res[0]["error"] == "http 403"
+    down = Http(error="ConnectError")
+    res = make(Cfg(NTFY_TOPIC="from-secret"), {"notify__ntfy__enabled": "1"}, http=down).send(EVENT, ["ntfy"])
     assert res[0]["error"] == "ConnectError" and "from-secret" not in json.dumps(res)
 
 
 # ------------------------------------------------------------------ telegram
 def test_telegram_send_html_escaped():
-    seen = []
-
-    def handler(req: httpx.Request):
-        seen.append(req)
-        return httpx.Response(200, json={"ok": True})
-
-    n = make(Cfg(TELEGRAM_TOKEN="123:ABC", TELEGRAM_CHAT_ID="-1001"), {"notify__telegram__enabled": "1"}, transport=httpx.MockTransport(handler))
+    http = Http(data={"ok": True})
+    n = make(Cfg(TELEGRAM_TOKEN="123:ABC", TELEGRAM_CHAT_ID="-1001"), {"notify__telegram__enabled": "1"}, http=http)
     res = n.send(EVENT, ["telegram"])
     assert res[0]["ok"]
-    body = json.loads(seen[0].content)
-    assert str(seen[0].url) == "https://api.telegram.org/bot123:ABC/sendMessage" and body["chat_id"] == "-1001"
-    assert body["parse_mode"] == "HTML" and body["disable_web_page_preview"] is False
+    call, body = http.calls[0], http.calls[0]["payload"]
+    assert call["url"] == "https://api.telegram.org/bot123:ABC/sendMessage" and body["chat_id"] == "-1001"
+    assert body["parse_mode"] == "HTML"
     assert "<b>Bajada de precio: RTX Spark &lt;128GB&gt; &amp; más</b>" in body["text"] and 'href="https://www.pccomponentes.com/rtx-spark?a=1&amp;b=2"' in body["text"]
 
 
 def test_telegram_errors_never_leak_the_token():
-    transport = httpx.MockTransport(lambda r: httpx.Response(401, json={"ok": False, "description": "Unauthorized bot123:ABC"}))
-    res = make(Cfg(TELEGRAM_TOKEN="123:ABC", TELEGRAM_CHAT_ID="99"), {"notify__telegram__enabled": "1"}, transport=transport).send(EVENT, ["telegram"])
+    http = Http(status=401, data={"ok": False, "description": "Unauthorized bot123:ABC"})
+    res = make(Cfg(TELEGRAM_TOKEN="123:ABC", TELEGRAM_CHAT_ID="99"), {"notify__telegram__enabled": "1"}, http=http).send(EVENT, ["telegram"])
     assert res[0]["ok"] is False and "123:ABC" not in json.dumps(res) and "***" in res[0]["error"]
-
-    def boom(req):
-        raise httpx.ConnectError(f"cannot reach {req.url}")
-
-    res = make(Cfg(TELEGRAM_TOKEN="123:ABC", TELEGRAM_CHAT_ID="99"), {"notify__telegram__enabled": "1"}, transport=httpx.MockTransport(boom)).send(EVENT, ["telegram"])
-    assert res[0]["error"] == "ConnectError"
+    down = Http(error="ConnectError for bot123:ABC")
+    res = make(Cfg(TELEGRAM_TOKEN="123:ABC", TELEGRAM_CHAT_ID="99"), {"notify__telegram__enabled": "1"}, http=down).send(EVENT, ["telegram"])
+    assert "123:ABC" not in json.dumps(res) and res[0]["error"].startswith("ConnectError")
 
 
 def test_telegram_discover_chat_id():
-    def handler(req):
-        assert req.url.path == "/bot123:ABC/getUpdates"
-        return httpx.Response(200, json={"ok": True, "result": [
+    def answer(url, payload):
+        assert "/bot123:ABC/getUpdates" in url
+        return 200, {"ok": True, "result": [
             {"update_id": 1, "message": {"chat": {"id": 555, "first_name": "Ana", "type": "private"}}},
-            {"update_id": 2, "message": {"chat": {"id": 777, "first_name": "Ana", "last_name": "M", "type": "private"}}}]})
+            {"update_id": 2, "message": {"chat": {"id": 777, "first_name": "Ana", "last_name": "M", "type": "private"}}}]}
 
-    out = telegram_discover_chat_id("123:ABC", transport=httpx.MockTransport(handler))
+    out = telegram_discover_chat_id("123:ABC", http=Http(fn=answer))
     assert out == {"ok": True, "chat_id": "777", "name": "Ana M", "error": ""}
-    empty = telegram_discover_chat_id("123:ABC", transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"ok": True, "result": []})))
+    empty = telegram_discover_chat_id("123:ABC", http=Http(data={"ok": True, "result": []}))
     assert not empty["ok"] and "write to the bot first" in empty["error"]
     assert telegram_discover_chat_id("")["error"] == "missing TANTALUS_TELEGRAM_TOKEN"
-    via_notifier = make(Cfg(TELEGRAM_TOKEN="123:ABC"), transport=httpx.MockTransport(handler)).telegram_discover_chat_id()
+    via_notifier = make(Cfg(TELEGRAM_TOKEN="123:ABC"), http=Http(fn=answer)).telegram_discover_chat_id()
     assert via_notifier["chat_id"] == "777"
 
 
@@ -245,8 +238,8 @@ def test_telegram_discover_chat_id():
 class FakeSMTP:
     instances: list = []
 
-    def __init__(self, host, port, use_ssl, fail=None):
-        self.host, self.port, self.use_ssl, self.fail = host, port, use_ssl, fail
+    def __init__(self, cfg, fail=None):
+        self.host, self.port, self.use_ssl, self.fail = cfg["host"], cfg["port"], cfg["port"] == 465, fail
         self.sent, self.logged, self.quit_called = [], None, False
         FakeSMTP.instances.append(self)
 
@@ -289,13 +282,13 @@ def test_email_starttls_port_custom_recipients_and_errors():
     smtp = FakeSMTP.instances[0]
     assert smtp.use_ssl is False and smtp.port == 587 and smtp.sent[0]["To"] == "a@x.com, b@y.com" and smtp.sent[0]["From"] == "alerts@example.org"
 
-    bad = make(Cfg(**EMAIL_SECRETS), {"notify__email__enabled": "1"}, smtp_factory=lambda h, p, s: FakeSMTP(h, p, s, fail="auth"))
+    bad = make(Cfg(**EMAIL_SECRETS), {"notify__email__enabled": "1"}, smtp_factory=lambda cfg: FakeSMTP(cfg, fail="auth"))
     res = bad.send(EVENT, ["email"])
     assert res[0]["error"] == "authentication failed" and "hunter2" not in json.dumps(res)
-    worse = make(Cfg(**EMAIL_SECRETS), {"notify__email__enabled": "1"}, smtp_factory=lambda h, p, s: FakeSMTP(h, p, s, fail="send"))
+    worse = make(Cfg(**EMAIL_SECRETS), {"notify__email__enabled": "1"}, smtp_factory=lambda cfg: FakeSMTP(cfg, fail="send"))
     assert worse.send(EVENT, ["email"])[0]["error"] == "SMTPRecipientsRefused"
 
-    def unreachable(h, p, s):
+    def unreachable(cfg):
         raise OSError("network down")
 
     assert make(Cfg(**EMAIL_SECRETS), {"notify__email__enabled": "1"}, smtp_factory=unreachable).send(EVENT, ["email"])[0]["error"] == "OSError"
@@ -303,21 +296,19 @@ def test_email_starttls_port_custom_recipients_and_errors():
 
 # ------------------------------------------------------------------ test()
 def test_test_ignores_enabled_flag_but_needs_configuration():
-    seen = []
-    n = make(Cfg(NTFY_TOPIC="t"), {"notify__ntfy__enabled": "0", "notify__ntfy__min_severity": "high"},
-             transport=httpx.MockTransport(lambda r: seen.append(r) or httpx.Response(200)))
+    http = Http()
+    n = make(Cfg(NTFY_TOPIC="t"), {"notify__ntfy__enabled": "0", "notify__ntfy__min_severity": "high"}, http=http)
     res = n.test("ntfy")
-    assert res["channel"] == "ntfy" and res["ok"] and json.loads(seen[0].content)["title"].startswith("Novedad: Prueba de notificación")
+    assert res["channel"] == "ntfy" and res["ok"] and http.calls[0]["payload"]["title"].startswith("Novedad: Prueba de notificación")
     assert n.test("telegram") == {"channel": "telegram", "ok": False, "error": "missing TANTALUS_TELEGRAM_TOKEN, TANTALUS_TELEGRAM_CHAT_ID"}
     assert n.test("nope")["error"] == "unknown channel"
 
 
 def test_language_setting_switches_text():
-    seen = []
-    n = make(Cfg(NTFY_TOPIC="t"), {"notify__ntfy__enabled": "1", "notify__language": "en"},
-             transport=httpx.MockTransport(lambda r: seen.append(r) or httpx.Response(200)))
+    http = Http()
+    n = make(Cfg(NTFY_TOPIC="t"), {"notify__ntfy__enabled": "1", "notify__language": "en"}, http=http)
     n.send(EVENT, ["ntfy"])
-    assert json.loads(seen[0].content)["title"].startswith("Price drop:")
+    assert http.calls[0]["payload"]["title"].startswith("Price drop:")
 
 
 # ------------------------------------------------------------------ e-mail through Faustus
@@ -352,12 +343,12 @@ def test_email_auto_backend_picks_faustus_without_own_credentials(tmp_path, monk
     assert st["configured"] and st["backend"] == "faustus" and st["backend_setting"] == "auto"
     assert st["detail"] == "Faustus account Main <abc***@example.org> → abc***@example.org"
     argv, request, kw = runner.calls[0]
-    assert argv[0].endswith("python") and argv[1].endswith("faustus_mail.py") and argv[2] == str(root.resolve())
+    assert argv[0].endswith("python") and argv[1].endswith("mail_helper.py") and argv[2] == str(root.resolve())
     assert request["action"] == "status" and kw["cwd"] == str(root.resolve()) and not any(k.startswith("TANTALUS_") for k in kw["env"])
     res = n.send(EVENT, ["email"])
     assert res[0]["ok"] and len(runner.calls) == 2          # the good status was cached: one status call, one send
     _, sent, _ = runner.calls[1]
-    assert sent["action"] == "send" and sent["subject"].startswith("Bajada de precio") and sent["to"] == []
+    assert sent["action"] == "send" and sent["subject"].startswith("Bajada de precio") and "to" not in sent
     assert "https://www.pccomponentes.com/rtx-spark?a=1&b=2" in sent["text"] and "&lt;128GB&gt;" in sent["html"]
 
 
@@ -385,7 +376,7 @@ def test_email_faustus_errors_are_reported_not_raised(tmp_path):
     root.mkdir()
     fake = fake_faustus(root)
     garbage = make(Cfg(), {"notify__email__backend": "faustus", "notify__email__faustus_dir": str(fake)}, faustus_runner=Runner([None]))
-    assert garbage.test("email")["error"] == "Faustus: Faustus mail helper exit 0"
+    assert garbage.test("email")["error"] == "Faustus: mail helper exit 0"
     runner = Runner([{"ok": True, "from": "a***@b.c", "to": ["a***@b.c"]}, {"ok": False, "error": "authentication failed"}])
     failing = make(Cfg(), {"notify__email__enabled": "1", "notify__email__backend": "faustus", "notify__email__faustus_dir": str(fake)},
                    faustus_runner=runner)
@@ -395,13 +386,13 @@ def test_email_faustus_errors_are_reported_not_raised(tmp_path):
         raise OSError("no such file")
 
     crashed = make(Cfg(), {"notify__email__backend": "faustus", "notify__email__faustus_dir": str(fake)}, faustus_runner=broken)
-    assert crashed.test("email")["error"] == "Faustus: Faustus mail helper: OSError"
+    assert crashed.test("email")["error"] == "Faustus: mail helper: OSError"
 
 
 def test_faustus_mail_helper_against_a_stub_email_server(tmp_path, monkeypatch):
     """The helper runs the stub's own config resolution, fixes a port/security mismatch and never prints secrets."""
     import sys as _sys
-    from tantalus_hoard.notify import faustus_mail
+    from tantalus_hoard.hoard_link import mail_helper as faustus_mail
 
     root = tmp_path / "faustus"
     (root / "mcp_servers").mkdir(parents=True)
@@ -448,8 +439,9 @@ def test_faustus_mail_helper_against_a_stub_email_server(tmp_path, monkeypatch):
     monkeypatch.setattr(faustus_mail.smtplib, "SMTP", SMTP)
     monkeypatch.setattr(faustus_mail.smtplib, "SMTP_SSL", SMTP_SSL)
     status = faustus_mail.handle({"action": "status"}, str(root))
-    assert status == {"ok": True, "error": "", "account": "Main", "from": "me***@example.org", "to": ["me***@example.org"],
-                      "server": "smtp.example.org:587"} and not made
+    assert status["ok"] is True and not status["error"] and not made
+    assert {k: status[k] for k in ("account", "from", "to", "server")} == {"account": "Main", "from": "me***@example.org",
+                                                                          "to": ["me***@example.org"], "server": "smtp.example.org:587"}
     sent = faustus_mail.handle({"action": "send", "subject": "Hi\r\nBcc: x@evil.com", "text": "body", "html": "<p>b</p>",
                                 "to": ["other@example.net", "bad address"]}, str(root))
     assert sent["ok"] and made[0].kind == "starttls"

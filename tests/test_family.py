@@ -365,8 +365,8 @@ class FakeHubMail:
         self.interests.append(spec)
         return {"ok": True}
 
-    def messages(self, since_id=0, limit=100, full=True, interest=True):
-        self.requests.append({"since_id": since_id, "limit": limit, "interest": interest})
+    def messages(self, since_id=0, limit=100, full=True, interest=True, fields=None):
+        self.requests.append({"since_id": since_id, "limit": limit, "interest": interest, "fields": fields})
         if self.fail:
             return {"ok": False, "error": self.fail, "messages": [], "last_id": since_id}
         rows = [m for m in self.messages_stored if m["id"] > since_id][:limit]
@@ -381,7 +381,7 @@ def hub_steam(hub_id, mid, title, *, age_s=HOUR, pct=40, app=111):
     from test_mail_deals import steam
     m = steam(mid, title, pct, age_s=age_s, app=app)
     m = {**m, "id": hub_id, "from_addr": m["from_address"], "source": "main"}
-    m.pop("images", None)
+    m["images"] = [{"alt": "Steam", "src": "https://cdn.example/steam.png"}, {"alt": title, "src": f"https://cdn.example/{app}.jpg"}]
     return m
 
 
@@ -399,6 +399,7 @@ def test_auto_reads_from_the_hub_registers_the_interest_and_claims(svc, hubmail)
     assert first["ok"] and first["quiet"] and first["deals_new"] == 2 and first["notified"] == 0
     assert hubmail.interests == [{"from_domains": sorted({d for s in svc.mail.stores() for d in s["domains"]})}]
     assert hubmail.requests[0]["since_id"] == 0 and hubmail.requests[0]["interest"] is True
+    assert hubmail.requests[0]["fields"] == ["images", "headers"]       # the gateway adds the hero images and the list headers on request
     assert svc.db.get_setting("mail.hub.since_id") == "2" and svc.db.get_setting("mail.deals.first_scan_done") == "1"
     claimed = {ids[0]: (kind, ref) for ids, kind, ref in hubmail.claims}
     assert set(claimed) == {1, 2} and all(k == "deal" and r.startswith("hoard://tantalus/deal/") for k, r in claimed.values())

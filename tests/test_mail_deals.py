@@ -10,7 +10,8 @@ import pytest
 
 from conftest import T0, tool
 from tantalus_hoard.errors import TantalusError
-from tantalus_hoard.mail import faustus_reader
+from tantalus_hoard.hoard_link import fam_mail, mail_helper
+from tantalus_hoard.hoard_link.fam_mail import FaustusHelper
 from tantalus_hoard.mail.source import MailSource
 from tantalus_hoard.scheduler import Scheduler, lane_of
 
@@ -296,33 +297,34 @@ def test_the_scan_is_an_extra_job_kind_in_the_sweeps_lane():
     assert sched.run_now("mail_deals", "all", timeout=1) == {"ok": True} or ran    # no loop running: runs inline
 
 
-def test_the_reader_cannot_modify_a_mailbox():
-    source = Path(faustus_reader.__file__).read_text(encoding="utf-8")
-    for forbidden in ("smtplib", "sendmail", "send_message", "EXPUNGE", "conn.expunge", "conn.store", "conn.copy", "conn.append", "conn.delete", "conn.create",
+def test_the_helper_cannot_modify_a_mailbox():
+    # the vendored helper also sends the notification mail; its mailbox side only ever reads
+    source = Path(mail_helper.__file__).read_text(encoding="utf-8")
+    for forbidden in ("EXPUNGE", "conn.expunge", "conn.store", "conn.copy", "conn.append", "conn.delete", "conn.create",
                       "conn.rename", '"STORE"', '"COPY"', '"MOVE"', "\\Seen", "\\Deleted", "RFC822", "BODY[]"):
         assert forbidden not in source, forbidden
-    assert "readonly=True" in source and "BODY.PEEK[]" in source and "BODY.PEEK[HEADER.FIELDS" in source
+    assert "BODY.PEEK" in source and "EXAMINE" in source
 
 
-def test_the_reader_answers_without_a_faustus_folder(tmp_path):
-    answer = faustus_reader.handle({"action": "status"}, str(tmp_path))
+def test_the_helper_answers_without_a_faustus_folder(tmp_path):
+    answer = mail_helper.handle({"action": "status"}, str(tmp_path))
     assert answer["ok"] is False and "error" in answer
 
 
-def test_source_reports_a_missing_faustus_folder_and_parses_the_helper_answer():
-    class NoFaustus:
-        def faustus_dir(self):
-            return None
+def test_source_reports_a_missing_faustus_folder_and_parses_the_helper_answer(tmp_path, monkeypatch):
+    for key in fam_mail.FAUSTUS_ENV:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(fam_mail, "_sibling_candidates", lambda: [])
+    monkeypatch.setattr(fam_mail, "COMMON_FAUSTUS_PATHS", ())
+    nowhere = FaustusHelper(lambda: str(tmp_path / "nowhere"), ask_hub=False)
+    source = MailSource(settings_get=lambda key, default=None: str(tmp_path / "nowhere") if key == "notify.email.faustus_dir" else default)
+    assert source.status()["ok"] is False and nowhere.faustus_dir() is None
 
-    assert MailSource(NoFaustus()).status()["ok"] is False
-
-    class Notifier:
-        def faustus_dir(self):
-            return Path(".")
-
-        @staticmethod
-        def faustus_python(root):
-            return "python"
+    root = tmp_path / "faustus"
+    (root / "mcp_servers").mkdir(parents=True)
+    (root / "mcp_servers" / "email_server.py").write_text("# stub\n")
+    (root / "venv" / "bin").mkdir(parents=True)
+    (root / "venv" / "bin" / "python").write_text("")
 
     class Done:
         stdout = "noise\n" + json.dumps({"ok": True, "messages": []}) + "\n"
@@ -332,7 +334,16 @@ def test_source_reports_a_missing_faustus_folder_and_parses_the_helper_answer():
 
     def runner(command, **kwargs):
         seen.update(kwargs)
+        seen["command"] = command
         return Done()
-    out = MailSource(Notifier(), process_runner=runner).headers(7, 10)
-    assert out == {"ok": True, "messages": []} and json.loads(seen["input"]) == {"action": "headers", "since_days": 7, "max": 10}
-    assert not any(k.startswith("TANTALUS_") for k in seen["env"])
+    monkeypatch.setenv("TANTALUS_TELEGRAM_TOKEN", "must-not-reach-the-helper")
+    out = MailSource(settings_get=lambda key, default=None: str(root) if key == "notify.email.faustus_dir" else default, process_runner=runner).headers(7, 10)
+    assert out == {"ok": True, "messages": []} and json.loads(seen["input"]) == {"since_days": 7, "max": 10, "action": "headers"}
+    assert seen["command"][1].endswith("mail_helper.py") and not any(k.startswith("TANTALUS_") for k in seen["env"])
+
+
+def test_gateway_images_keep_their_alt_texts_for_titles_and_their_sources_as_hero_images():
+    from tantalus_hoard.mail.source import _normalise
+    message = _normalise({"from_addr": "News@GOG.com", "images": [{"alt": "Hades II", "src": "https://cdn.example/h.jpg"}, {"alt": "", "src": "x"}, "Celeste"]})
+    assert message["images"] == ["Hades II", "", "Celeste"] and message["image_urls"] == ["https://cdn.example/h.jpg", "x"]
+    assert message["from_address"] == "news@gog.com" and message["links"] == [] and message["text"] == ""

@@ -1,6 +1,6 @@
 """The mail noise report: which sender domains fill the mailbox with promotional mail nobody reads.
 
-A pure aggregator over header records (sender, date, ``List-Unsubscribe``, Gmail category) as ``faustus_reader.py`` returns
+A pure aggregator over header records (sender, date, ``List-Unsubscribe``, Gmail category) as the Faustus mail helper returns
 them. It never touches the mailbox and never follows a link: the unsubscribe links it reports are text for the user to act on.
 """
 

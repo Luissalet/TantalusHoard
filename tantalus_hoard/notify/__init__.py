@@ -1,8 +1,12 @@
 """Notification channels: Windows toast, family hub, ntfy, Telegram and e-mail.
 
-E-mail has two backends: plain SMTP with Tantalus's own credentials, or the account configured in Faustus
-(``faustus_mail.py`` runs under Faustus's Python, so that password never reaches Tantalus). ``auto`` uses SMTP when
-Tantalus has its own user and password and Faustus otherwise.
+The channel code is the family's (``hoard_link.notify_channels``: toast, ntfy, Telegram, SMTP and the Faustus mail helper) and the
+``auto | hub | own`` switch is ``hoard_link.fam_notify.Router``; this module keeps what is Tantalus's own: which settings
+switch a channel on, the severity floors, the labels and texts (``labels.py``) and the per-channel result list.
+
+E-mail has two backends: plain SMTP with Tantalus's own credentials, or the account configured in Faustus (the vendored mail
+helper runs under Faustus's Python, so that password never reaches Tantalus). ``auto`` uses SMTP when Tantalus has its own user and
+password and Faustus otherwise.
 
 ``Notifier.send(event, channels)`` returns one ``{channel, ok, error}`` per channel and never raises.
 Secrets come only from ``config.secret(...)`` (environment / .env); the database holds only the
@@ -12,26 +16,16 @@ put in an error string.
 
 from __future__ import annotations
 
-import html
-import json
 import logging
-import os
-import re
-import shutil
-import smtplib
-import ssl
-import subprocess
 import sys
-import tempfile
 import time
-from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Callable, Optional
-from urllib.parse import urlsplit
-
-import httpx
 
 from ..config import REPO_ROOT
+from ..hoard_link import notify_channels as nc
+from ..hoard_link.fam_mail import FaustusHelper, faustus_python as _faustus_python
+from ..hoard_link.fam_notify import VIA_MODES, Router
 from .labels import LABELS, TYPE_TAGS, WORDS, compose, format_price, label
 
 log = logging.getLogger("tantalus.notify")
@@ -39,71 +33,40 @@ log = logging.getLogger("tantalus.notify")
 CHANNELS = ("toast", "hub", "ntfy", "telegram", "email")
 SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2}
 APP_ID = "Tantalus's Hoard"
-POWERSHELL_APP_ID = r"{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe"
 DEFAULT_ENABLED = {"toast": True, "hub": True, "ntfy": False, "telegram": False, "email": False}
-HTTP_TIMEOUT_S = 10.0
 EMAIL_BACKENDS = ("auto", "faustus", "smtp")
-VIA_MODES = ("auto", "hub", "own")       # who delivers the push channels: the family hub, Tantalus's own code, or the hub with a fallback
 PUSH_CHANNELS = ("toast", "ntfy", "telegram", "email")   # the channels the hub's notification facet replaces ("hub" is the bus event)
 SEVERITY_PRIORITY = {"low": "low", "medium": "normal", "high": "high"}
-FAUSTUS_HELPER = Path(__file__).with_name("faustus_mail.py")
-FAUSTUS_TIMEOUT_S = 60
 FAUSTUS_STATUS_TTL_S = 300.0     # a good status is reused for five minutes, a failure for thirty seconds
 
-
-def xml_escape(text: str) -> str:
-    """Escape for XML text and attribute values; also drops characters XML 1.0 forbids."""
-    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", text or "")
-    return html.escape(text, quote=True)
-
-
-def _http_url(url: Any) -> str:
-    url = str(url or "").strip()
-    return url if urlsplit(url).scheme in ("http", "https") else ""
-
-
-def _scrub(text: str, secrets: list[str]) -> str:
-    for secret in secrets:
-        if secret and len(secret) >= 4:
-            text = text.replace(secret, "***")
-    return text
+xml_escape = nc.xml_escape
 
 
 def build_toast_ps1(title: str, body: str, url: str = "") -> str:
     """PowerShell that shows one toast through Windows.UI.Notifications (no extra module needed)."""
-    launch = _http_url(url)
-    attrs = f' activationType="protocol" launch="{xml_escape(launch)}"' if launch else ""
-    xml = (f'<toast{attrs}><visual><binding template="ToastGeneric"><text>{xml_escape(title[:120])}</text>'
-           f'<text>{xml_escape(body[:300])}</text></binding></visual></toast>')
-    return (
-        "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null\n"
-        "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null\n"
-        f"$xml = @'\n{xml}\n'@\n"
-        "$doc = New-Object Windows.Data.Xml.Dom.XmlDocument\n"
-        "$doc.LoadXml($xml)\n"
-        "$toast = [Windows.UI.Notifications.ToastNotification]::new($doc)\n"
-        f"[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('{POWERSHELL_APP_ID}').Show($toast)\n"
-    )
+    return nc.build_toast_ps1(title, body, url)
 
 
 class Notifier:
-    def __init__(self, config: Any, db_settings_get: Callable[[str, Optional[str]], Optional[str]], *, transport: Any = None,
-                 clock: Callable[[], float] = time.time, smtp_factory: Optional[Callable[..., Any]] = None,
+    def __init__(self, config: Any, db_settings_get: Callable[[str, Optional[str]], Optional[str]], *, http: Any = None,
+                 clock: Callable[[], float] = time.time, smtp_factory: Optional[Callable[[dict[str, Any]], Any]] = None,
                  toast_backend: Optional[Callable[[str, str, str, bool], None]] = None,
                  powershell_runner: Optional[Callable[..., Any]] = None, platform: Optional[str] = None, icon_path: Optional[Path] = None,
                  faustus_runner: Optional[Callable[..., Any]] = None, hub_notify: Any = None):
         self.config = config
         self.get = db_settings_get
-        self.transport = transport
+        self.http = http                       # ``http(url, payload, headers=, timeout=) -> (status, json)``; default: the commons' client
         self.clock = clock
-        self.smtp_factory = smtp_factory or self._default_smtp
+        self.smtp_factory = smtp_factory
         self.toast_backend = toast_backend
-        self.powershell_runner = powershell_runner or subprocess.run
+        self.powershell_runner = powershell_runner
         self.platform = platform or sys.platform
         self.icon_path = icon_path if icon_path is not None else REPO_ROOT / "app-icon.png"
-        self.faustus_runner = faustus_runner or subprocess.run
-        self._faustus_status: Optional[tuple[float, str, dict[str, Any]]] = None
         self._hub_notify = hub_notify          # an object with notify() and hub_available(); default: hoard_link.fam_notify
+        self.helper = FaustusHelper(self._faustus_setting, owner=lambda: self._setting("notify.email.faustus_owner"),
+                                    runner=faustus_runner, env_drop_prefixes=("TANTALUS_",), ask_hub=False, clock=clock)
+        self._faustus_status: Optional[tuple[float, str, dict[str, Any]]] = None
+        self.router = self._router(None)
 
     # ------------------------------------------------------------------ settings and status
     def _setting(self, key: str, default: str = "") -> str:
@@ -148,7 +111,7 @@ class Notifier:
             port = 465
         to = [a.strip() for a in (self._secret("SMTP_TO") or user).split(",") if a.strip()]
         return {"host": self._secret("SMTP_HOST") or "smtp.gmail.com", "port": port, "user": user, "password": self._secret("SMTP_PASSWORD"),
-                "from": self._secret("SMTP_FROM") or user, "to": to}
+                "from": self._secret("SMTP_FROM") or user, "to": to, "tls": True}
 
     def _configured(self, channel: str) -> tuple[bool, str]:
         if channel == "toast":
@@ -185,47 +148,23 @@ class Notifier:
         status["email"]["faustus_dir"] = str(self.faustus_dir() or "")
         return status
 
-    # ------------------------------------------------------------------ delivery through the family hub
-    @property
-    def hub(self) -> Any:
-        if self._hub_notify is None:
-            from ..hoard_link import fam_notify
-            self._hub_notify = fam_notify
-        return self._hub_notify
+    # ------------------------------------------------------------------ delivery through the family hub (fam_notify.Router)
+    def _router(self, own_send: Optional[Callable[..., Any]], via: Optional[Callable[[], Any]] = None) -> Router:
+        return Router(via or self.via_setting, own_send, app_name="Tantalus", hub=self._hub_notify)
 
     def via_setting(self) -> str:
         """``notify.via``: ``auto`` (hub when it answers, own channels otherwise), ``hub`` (only the hub) or ``own``."""
         value = self._setting("notify.via", "auto").lower()
         return value if value in VIA_MODES else "auto"
 
-    def _hub_up(self) -> bool:
-        try:
-            return bool(self.hub.hub_available())
-        except Exception:  # noqa: BLE001
-            return False
-
     def via_status(self) -> dict[str, Any]:
         """What the next alert would use: ``{setting, effective: hub|own, hub_available}``."""
-        setting = self.via_setting()
-        up = self._hub_up() if setting != "own" else False
-        return {"setting": setting, "effective": "hub" if (setting == "hub" or (setting == "auto" and up)) else "own", "hub_available": up}
+        return self.router.via_status()
 
-    def _send_via_hub(self, event: dict[str, Any]) -> dict[str, Any]:
-        """One notification to the hub: it picks the channels, applies quiet hours and the work/personal sphere."""
-        title, body = compose(event, self._lang())
-        priority = SEVERITY_PRIORITY.get(str(event.get("severity") or "medium").lower(), "normal")
-        key = str(event.get("dedupe_key") or "") or ("tantalus:" + str(event.get("id") or title))
-        try:
-            answer = self.hub.notify(title, body, priority=priority, url=_http_url(event.get("url")),
-                                     group=str(event.get("type") or "alert").lower(), dedupe_key=key)
-        except Exception as exc:  # noqa: BLE001 - the notifier must never raise out of the engine
-            return {"ok": False, "error": f"hub notify: {type(exc).__name__}"}
-        if not isinstance(answer, dict):
-            return {"ok": False, "error": "hub notify: unexpected answer"}
-        if answer.get("ok"):
-            held = str(answer.get("held") or "")
-            return {"ok": True, "error": f"held by the hub ({held})" if held else "", "held": held, "hub_id": answer.get("id")}
-        return {"ok": False, "error": str(answer.get("error") or f"hub notify failed ({answer.get('status')})")[:200]}
+    @staticmethod
+    def _hub_fields(event: dict[str, Any], title: str) -> dict[str, Any]:
+        return {"priority": SEVERITY_PRIORITY.get(str(event.get("severity") or "medium").lower(), "normal"), "url": nc.http_url(event.get("url")),
+                "group": str(event.get("type") or "alert").lower(), "dedupe_key": str(event.get("dedupe_key") or "") or ("tantalus:" + str(event.get("id") or title))}
 
     def test_hub(self) -> dict[str, Any]:
         """A sample notification through the hub, whatever ``notify.via`` says."""
@@ -233,10 +172,20 @@ class Notifier:
         sample = {"id": "test", "type": "INFO_CHANGE", "severity": "medium", "title": words["test_title"], "summary": words["test_body"],
                   "url": "", "price": None, "currency": None, "confidence": None, "watcher_name": "", "image": "",
                   "dedupe_key": f"tantalus:test:{int(self.clock())}"}
-        answer = self._send_via_hub(sample)
-        return {"channel": "hub_notify", "ok": answer["ok"], "error": answer.get("error", ""), "held": answer.get("held", ""), "via": "hub"}
+        title, body = compose(sample, self._lang())
+        res = self._router(None, via=lambda: "hub").send(title, body, **self._hub_fields(sample, title))
+        return {"channel": "hub_notify", "ok": res["ok"], "error": self._hub_error(res), "held": res.get("held", ""), "via": "hub"}
 
-    # ------------------------------------------------------------------ e-mail through Faustus
+    @staticmethod
+    def _hub_error(res: dict[str, Any]) -> str:
+        if res.get("ok"):
+            return f"held by the hub ({res['held']})" if res.get("held") else ""
+        return str(res.get("why") or "")
+
+    # ------------------------------------------------------------------ e-mail through Faustus (the commons' mail helper)
+    def _faustus_setting(self) -> str:
+        return self._setting("notify.email.faustus_dir") or self._secret("FAUSTUS_DIR")
+
     def _email_backend_setting(self) -> str:
         value = self._setting("notify.email.backend", "auto").lower()
         return value if value in EMAIL_BACKENDS else "auto"
@@ -251,52 +200,12 @@ class Notifier:
         return "faustus" if self.faustus_dir() else "smtp"
 
     def faustus_dir(self) -> Optional[Path]:
-        """The Faustus folder: setting, TANTALUS_FAUSTUS_DIR, FAUSTUS_DIR, then a ``faustus`` folder next to this app."""
-        raw = [self._setting("notify.email.faustus_dir"), self._secret("FAUSTUS_DIR"), os.environ.get("FAUSTUS_DIR", "")]
-        candidates = [Path(r).expanduser() for r in raw if r and r.strip()]
-        if not any(r and r.strip() for r in raw):
-            candidates += [REPO_ROOT.parent / "faustus", REPO_ROOT.parent.parent / "faustus"]
-        for path in candidates:
-            try:
-                if (path / "mcp_servers" / "email_server.py").is_file():
-                    return path.resolve()
-            except OSError:
-                continue
-        return None
+        """The Faustus folder: setting, TANTALUS_FAUSTUS_DIR, FAUSTUS_DIR, then the usual places (see ``fam_mail.faustus_dir``)."""
+        return self.helper.faustus_dir()
 
     @staticmethod
     def faustus_python(root: Path) -> Optional[str]:
-        for rel in ("venv/Scripts/python.exe", ".venv/Scripts/python.exe", "venv/bin/python", ".venv/bin/python"):
-            if (root / rel).is_file():
-                return str(root / rel)
-        return None
-
-    def _faustus_call(self, request: dict[str, Any]) -> dict[str, Any]:
-        root = self.faustus_dir()
-        if root is None:
-            return {"ok": False, "error": "Faustus folder not found (set notify.email.faustus_dir)"}
-        python = self.faustus_python(root)
-        if python is None:
-            return {"ok": False, "error": "Faustus has no venv with Python"}
-        owner = self._setting("notify.email.faustus_owner")
-        if owner:
-            request = {**request, "owner": owner}
-        env = {k: v for k, v in os.environ.items() if not k.startswith("TANTALUS_")}   # Tantalus's own secrets stay here
-        env["PYTHONIOENCODING"] = "utf-8"
-        try:
-            done = self.faustus_runner([python, str(FAUSTUS_HELPER), str(root)], input=json.dumps(request), capture_output=True, text=True,
-                                       encoding="utf-8", timeout=FAUSTUS_TIMEOUT_S, cwd=str(root), env=env,
-                                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        except (OSError, subprocess.SubprocessError) as exc:
-            return {"ok": False, "error": f"Faustus mail helper: {type(exc).__name__}"}
-        lines = [line for line in (getattr(done, "stdout", "") or "").splitlines() if line.strip().startswith("{")]
-        try:
-            answer = json.loads(lines[-1]) if lines else {}
-        except ValueError:
-            answer = {}
-        if not isinstance(answer, dict) or "ok" not in answer:
-            return {"ok": False, "error": f"Faustus mail helper exit {getattr(done, 'returncode', '?')}"}
-        return answer
+        return _faustus_python(root)
 
     def faustus_status(self, refresh: bool = False) -> dict[str, Any]:
         key = str(self.faustus_dir() or "") + "|" + self._setting("notify.email.faustus_owner")
@@ -305,7 +214,7 @@ class Notifier:
             ttl = FAUSTUS_STATUS_TTL_S if cached[2].get("ok") else 30.0
             if self.clock() - cached[0] < ttl:
                 return cached[2]
-        result = self._faustus_call({"action": "status", "to": self._secret("SMTP_TO")})
+        result = self.helper.run("status", {"to": self._secret("SMTP_TO")}, 60.0)
         self._faustus_status = (self.clock(), key, result)
         return result
 
@@ -325,28 +234,36 @@ class Notifier:
         channels when the hub does not answer, ``hub`` reports the failure instead, ``own`` never calls the hub. The ``hub`` channel
         (the bus event) is independent of this."""
         results = []
-        rank = SEVERITY_RANK.get(str(event.get("severity") or "medium").lower(), 1)
-        via = self.via_setting()
         pushes = [c for c in channels if c in PUSH_CHANNELS]
-        hub_answer: Optional[dict[str, Any]] = None
-        if pushes and via != "own" and (via == "hub" or self._hub_up()):
-            hub_answer = self._send_via_hub(event)
+        own: dict[str, dict[str, Any]] = {}
+        routed: Optional[dict[str, Any]] = None
+
+        def own_send(title: str, body: str, **_kw: Any) -> dict[str, Any]:
+            for channel in pushes:
+                own[channel] = self._checked(channel, event)
+            return {"ok": True}
+
+        if pushes:
+            title, body = compose(event, self._lang())
+            routed = self._router(own_send).send(title, body, **self._hub_fields(event, title))
         for channel in channels:
             if channel not in CHANNELS:
                 results.append({"channel": channel, "ok": False, "error": "unknown channel"})
-                continue
-            if hub_answer is not None and channel in PUSH_CHANNELS and (hub_answer["ok"] or via == "hub"):
-                results.append({"channel": channel, "ok": hub_answer["ok"], "error": hub_answer.get("error", ""), "via": "hub",
-                                "ts": self.clock()})
-                continue
-            if not self._enabled(channel):
-                results.append({"channel": channel, "ok": False, "error": "disabled", "skipped": True})
-                continue
-            if rank < SEVERITY_RANK[self._min_severity(channel)]:
-                results.append({"channel": channel, "ok": False, "error": "below minimum severity", "skipped": True})
-                continue
-            results.append(self._deliver(channel, event))
+            elif channel in own:
+                results.append(own[channel])
+            elif routed is not None and channel in PUSH_CHANNELS:
+                results.append({"channel": channel, "ok": routed["ok"], "error": self._hub_error(routed), "via": "hub", "ts": self.clock()})
+            else:
+                results.append(self._checked(channel, event))
         return results
+
+    def _checked(self, channel: str, event: dict[str, Any]) -> dict[str, Any]:
+        """One own delivery, after the enabled flag and the severity floor."""
+        if not self._enabled(channel):
+            return {"channel": channel, "ok": False, "error": "disabled", "skipped": True}
+        if SEVERITY_RANK.get(str(event.get("severity") or "medium").lower(), 1) < SEVERITY_RANK[self._min_severity(channel)]:
+            return {"channel": channel, "ok": False, "error": "below minimum severity", "skipped": True}
+        return self._deliver(channel, event)
 
     def test(self, channel: str) -> dict[str, Any]:
         """Send a sample notification through one channel, ignoring its enabled flag and severity floor."""
@@ -368,11 +285,15 @@ class Notifier:
             log.info("notify %s failed: %s", channel, type(exc).__name__)
         return {"channel": channel, "ok": not error, "error": error or "", "ts": self.clock()}
 
+    @staticmethod
+    def _error(result: dict[str, Any]) -> str:
+        return "" if result.get("ok") else str(result.get("error") or "failed")
+
     # ------------------------------------------------------------------ channels (each returns '' on success or an error)
     def _send_toast(self, event: dict[str, Any], title: str, body: str) -> str:
         if not self._is_windows():
             return "not windows"
-        url = _http_url(event.get("url"))
+        url = nc.http_url(event.get("url"))
         high = str(event.get("severity")) == "high"
         if self.toast_backend is not None:
             self.toast_backend(title, body, url, high)
@@ -390,26 +311,7 @@ class Notifier:
             pass
         except Exception as exc:  # noqa: BLE001 — fall through to the PowerShell path
             log.info("winotify failed (%s); trying PowerShell", type(exc).__name__)
-        return self._toast_powershell(title, body, url)
-
-    def _toast_powershell(self, title: str, body: str, url: str) -> str:
-        script = build_toast_ps1(title, body, url)
-        fd, path = tempfile.mkstemp(suffix=".ps1", prefix="tantalus-toast-")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8-sig") as handle:  # BOM: Windows PowerShell 5.1 reads UTF-8 only with it
-                handle.write(script)
-            exe = shutil.which("powershell") or "powershell"
-            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            done = self.powershell_runner([exe, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path], capture_output=True, text=True,
-                                          timeout=20, creationflags=flags)
-            return "" if getattr(done, "returncode", 1) == 0 else f"powershell exit {getattr(done, 'returncode', '?')}"
-        except (OSError, subprocess.SubprocessError) as exc:
-            return type(exc).__name__
-        finally:
-            try:
-                os.unlink(path)
-            except OSError:
-                pass
+        return self._error(nc.send_toast(title, body, url, runner=self.powershell_runner, platform=self.platform))
 
     def _send_hub(self, event: dict[str, Any], title: str, body: str) -> str:
         from ..hoard_link import family
@@ -424,127 +326,43 @@ class Notifier:
             accepted = False
         return "" if accepted else "hub not configured"
 
-    def _client(self) -> httpx.Client:
-        return httpx.Client(transport=self.transport, timeout=HTTP_TIMEOUT_S, follow_redirects=False)
-
     def _send_ntfy(self, event: dict[str, Any], title: str, body: str) -> str:
-        server, topic = self._ntfy_server(), self._ntfy_topic()
-        if urlsplit(server).scheme not in ("http", "https"):
-            return "invalid ntfy server"
         severity = str(event.get("severity") or "medium")
         try:
             conf = float(event.get("confidence") or 0)
         except (TypeError, ValueError):
             conf = 0
         priority = (5 if conf >= 90 else 4) if severity == "high" else 3 if severity == "medium" else 2
-        payload: dict[str, Any] = {"topic": topic, "title": title[:250], "message": body or title, "priority": priority,
-                                   "tags": [TYPE_TAGS.get(str(event.get("type")), "bell")]}
-        if _http_url(event.get("url")):
-            payload["click"] = event["url"]
-        if _http_url(event.get("image")):
-            payload["attach"] = event["image"]
-        headers = {"Content-Type": "application/json; charset=utf-8"}
-        token = self._secret("NTFY_TOKEN")
-        if token:
-            headers["Authorization"] = "Bearer " + token
-        try:
-            with self._client() as client:
-                response = client.post(server + "/", json=payload, headers=headers)
-        except httpx.HTTPError as exc:
-            return type(exc).__name__
-        return "" if 200 <= response.status_code < 300 else f"http {response.status_code}"
+        return self._error(nc.send_ntfy(self._ntfy_server(), self._ntfy_topic(), title, body, priority=priority, url=event.get("url"),
+                                        token=self._secret("NTFY_TOKEN") or None, tags=[TYPE_TAGS.get(str(event.get("type")), "bell")],
+                                        attach=event.get("image"), http=self.http))
 
     def _send_telegram(self, event: dict[str, Any], title: str, body: str) -> str:
-        token, chat = self._secret("TELEGRAM_TOKEN"), self._secret("TELEGRAM_CHAT_ID")
-        text = f"<b>{html.escape(title)}</b>"
-        if body:
-            text += "\n" + html.escape(body)
-        url = _http_url(event.get("url"))
-        if url:
-            text += f'\n<a href="{html.escape(url, quote=True)}">{WORDS[self._lang()]["open"]}</a>'
-        payload = {"chat_id": chat, "text": text[:4000], "parse_mode": "HTML", "disable_web_page_preview": False}
-        try:
-            with self._client() as client:
-                response = client.post(f"https://api.telegram.org/bot{token}/sendMessage", json=payload)
-        except httpx.HTTPError as exc:
-            return type(exc).__name__
-        try:
-            data = response.json()
-        except ValueError:
-            data = {}
-        if response.status_code == 200 and data.get("ok"):
-            return ""
-        return _scrub(str(data.get("description") or f"http {response.status_code}"), [token, chat])[:160]
+        text = nc.telegram_text(title, body, event.get("url"), WORDS[self._lang()]["open"])
+        return self._error(nc.send_telegram(self._secret("TELEGRAM_TOKEN"), self._secret("TELEGRAM_CHAT_ID"), text, http=self.http))
 
     def telegram_discover_chat_id(self) -> dict[str, Any]:
         """Find the chat id after the user has written to the bot (getUpdates). Nothing is stored here."""
-        return telegram_discover_chat_id(self._secret("TELEGRAM_TOKEN"), transport=self.transport)
-
-    def _default_smtp(self, host: str, port: int, use_ssl: bool) -> Any:
-        context = ssl.create_default_context()
-        if use_ssl:
-            return smtplib.SMTP_SSL(host, port, timeout=20, context=context)
-        client = smtplib.SMTP(host, port, timeout=20)
-        client.starttls(context=context)
-        return client
-
-    @staticmethod
-    def _email_parts(event: dict[str, Any], title: str, body: str) -> tuple[str, str, str]:
-        subject = re.sub(r"[\r\n]+", " ", title)[:200]
-        url = _http_url(event.get("url"))
-        text = (body + (f"\n\n{url}" if url else "")) or title
-        rows = "".join(f"<p>{html.escape(line)}</p>" for line in body.splitlines() if line.strip())
-        link = f'<p><a href="{html.escape(url, quote=True)}">{html.escape(url)}</a></p>' if url else ""
-        return subject, text, f"<html><body><h3>{html.escape(title)}</h3>{rows}{link}</body></html>"
+        return telegram_discover_chat_id(self._secret("TELEGRAM_TOKEN"), http=self.http)
 
     def _send_email(self, event: dict[str, Any], title: str, body: str) -> str:
-        subject, text, html_body = self._email_parts(event, title, body)
+        subject, text, html_body = nc.email_parts(title, body, event.get("url"))
         if self.email_backend() == "faustus":
             to = [a.strip() for a in self._secret("SMTP_TO").split(",") if a.strip()]
-            answer = self._faustus_call({"action": "send", "subject": subject, "text": text, "html": html_body, "to": to})
+            answer = nc.send_via_helper(self.helper.run, subject, text, html=html_body, to=to)
             if not answer.get("ok"):
                 self._faustus_status = None      # re-check the account on the next status
-            return "" if answer.get("ok") else str(answer.get("error") or "Faustus mail failed")[:200]
+            return self._error(answer)
         e = self._email_settings()
-        msg = EmailMessage()
-        msg["Subject"] = subject
-        msg["From"], msg["To"] = e["from"] or e["user"], ", ".join(e["to"])
-        msg.set_content(text)
-        msg.add_alternative(html_body, subtype="html")
-        client = self.smtp_factory(e["host"], e["port"], e["port"] == 465)
-        try:
-            client.login(e["user"], e["password"])
-            client.send_message(msg)
-        except smtplib.SMTPAuthenticationError:
-            return "authentication failed"
-        except (smtplib.SMTPException, OSError) as exc:
-            return _scrub(type(exc).__name__, [e["password"]])
-        finally:
-            try:
-                client.quit()
-            except Exception:  # noqa: BLE001
-                pass
-        return ""
+        return self._error(nc.send_smtp(e, e["to"], subject, text, html=html_body, smtp_factory=self.smtp_factory))
 
-def telegram_discover_chat_id(token: str, *, transport: Any = None) -> dict[str, Any]:
+
+def telegram_discover_chat_id(token: str, *, http: Any = None) -> dict[str, Any]:
     """``{ok, chat_id, name, error}`` from the bot's latest update. The user must write to the bot first."""
     if not token:
         return {"ok": False, "chat_id": "", "name": "", "error": "missing TANTALUS_TELEGRAM_TOKEN"}
-    try:
-        with httpx.Client(transport=transport, timeout=HTTP_TIMEOUT_S) as client:
-            response = client.get(f"https://api.telegram.org/bot{token}/getUpdates", params={"limit": 20, "timeout": 0})
-        data = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
-        return {"ok": False, "chat_id": "", "name": "", "error": type(exc).__name__}
-    if response.status_code != 200 or not data.get("ok"):
-        return {"ok": False, "chat_id": "", "name": "", "error": _scrub(str(data.get("description") or f"http {response.status_code}"), [token])[:160]}
-    for update in reversed(data.get("result") or []):
-        for key in ("message", "edited_message", "channel_post", "my_chat_member"):
-            chat = (update.get(key) or {}).get("chat")
-            if isinstance(chat, dict) and chat.get("id") is not None:
-                name = chat.get("title") or " ".join(x for x in (chat.get("first_name"), chat.get("last_name")) if x) or chat.get("username") or ""
-                return {"ok": True, "chat_id": str(chat["id"]), "name": name, "error": ""}
-    return {"ok": False, "chat_id": "", "name": "", "error": "no messages yet: write to the bot first"}
+    return nc.telegram_discover_chat_id(token, http=http)
 
 
-__all__ = ["Notifier", "CHANNELS", "EMAIL_BACKENDS", "VIA_MODES", "PUSH_CHANNELS", "telegram_discover_chat_id", "build_toast_ps1", "compose", "label", "LABELS", "format_price", "xml_escape"]
+__all__ = ["Notifier", "CHANNELS", "EMAIL_BACKENDS", "VIA_MODES", "PUSH_CHANNELS", "telegram_discover_chat_id", "build_toast_ps1", "compose", "label",
+           "LABELS", "format_price", "xml_escape"]
