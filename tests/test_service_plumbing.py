@@ -53,3 +53,14 @@ def test_entry_point_passes_the_app_identity(monkeypatch):
     assert seen["service"] == "tantalus-hoard" and seen["default_port"] == 5197 and seen["open_browser_default"] is False
     assert seen["app_factory"] == "tantalus_hoard.main:create_app" and seen["data_dir_env"] == "TANTALUS_DATA_DIR"
     assert os.environ["TANTALUS_PORT"] == "5300"
+
+
+def test_new_ids_are_ulids_and_old_ids_still_resolve(svc):
+    from tantalus_hoard.store import new_id
+
+    first, second = new_id("t"), new_id("t")
+    assert first.startswith("t_") and first < second
+    old = svc.store.create_watcher(name="old", mode="availability", config={}, watcher_id="w_mur1nyclbe4c77")
+    new = svc.store.create_watcher(name="new", mode="availability", config={})
+    assert svc.store.watcher("w_mur1nyclbe4c77")["name"] == "old" and svc.store.watcher(new["id"])["name"] == "new"
+    assert old["id"] != new["id"]

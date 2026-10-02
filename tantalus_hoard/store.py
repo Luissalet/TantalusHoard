@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
-import secrets
 import time
 from typing import Any, Callable, Iterable, Optional
 from urllib.parse import urlsplit
 
 from .db import Database
 from .errors import TantalusError
+from .hoard_link.ids import new_id  # ULID ids (prefix_ULID); the old base36 ids already stored keep working as opaque strings
 from .model import MODES, SELLER_POLICIES, TARGET_STATUSES, UNKNOWN
 
 JSON_COLUMNS = {
@@ -21,17 +21,6 @@ JSON_COLUMNS = {
 }
 BOOL_COLUMNS = {"watchers": ("enabled",), "events": ("seen", "notified"), "listings": ("relevant", "shipping", "reserved"),
                 "observations": ("seller_is_retailer", "buy_button", "is_revalidation"), "info_items": ("material",)}
-
-
-def new_id(prefix: str) -> str:
-    """Sortable, readable ids: prefix + base36 milliseconds + 6 random hex chars."""
-    ms = int(time.time() * 1000)
-    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
-    out = ""
-    while ms:
-        ms, r = divmod(ms, 36)
-        out = digits[r] + out
-    return f"{prefix}_{out}{secrets.token_hex(3)}"
 
 
 def host_of(url: str) -> str:
