@@ -211,7 +211,9 @@ def test_budget_category_is_a_watcher_field(svc):
 def test_tokens_and_identifiers():
     assert tokens("Pokémon JCC 30.º Aniversario Elite Trainer Boxes") >= {"pokemon", "jcc", "30", "aniversario", "elite", "trainer", "box"}
     assert "de" not in tokens("Caja de cartas") and "ab" in tokens("AB 12")
-    assert identifiers("https://www.amazon.es/dp/B0C1234567/ref=x", "EAN 8435407612345") == {"B0C1234567", "8435407612345"}
+    assert identifiers("https://www.amazon.es/dp/B0C1234567/ref=x", "EAN 8435407612341") == {"B0C1234567", "8435407612341"}
+    # the GS1 check digit is enforced: an order number or timestamp that only looks like an EAN is no identifier
+    assert identifiers("EAN 8435407612345", "pedido 1700000000123") == set()
 
 
 def test_match_scores_by_overlap_ids_and_shop(svc):

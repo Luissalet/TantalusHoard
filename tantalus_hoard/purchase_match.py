@@ -18,6 +18,7 @@ import re
 from typing import Any, Iterable, Optional
 from urllib.parse import unquote, urlsplit
 
+from .hoard_link.idcheck import identifiers as _identifiers
 from .mail.parse import fold
 
 STOPWORDS = frozenset(
@@ -25,9 +26,6 @@ STOPWORDS = frozenset(
     "pack set edicion edition new nuevo nueva envio gratis oferta".split())
 MIN_SCORE = 0.3
 GENERIC_CAP = 0.7           # a watcher with fewer than two product words cannot be told apart from a lookalike
-ASIN_RE = re.compile(r"(?<![A-Z0-9])(B0[A-Z0-9]{8})(?![A-Z0-9])")
-EAN_RE = re.compile(r"(?<!\d)(\d{13}|\d{12}|\d{8})(?!\d)")
-URL_ID_RE = re.compile(r"(?:/dp/|/gp/product/|/p/|/product/|/producto/|/ip/|sku=|pid=|id=)([A-Za-z0-9_-]{5,})", re.I)
 
 
 def _stem(word: str) -> str:
@@ -57,13 +55,14 @@ def host_of(url: Any) -> str:
 
 
 def identifiers(*texts: Any) -> set[str]:
-    """EAN/GTIN digits, ASINs and URL product ids found in the texts (upper case)."""
-    out = set()
+    """EAN/GTIN digits (8, 12, 13 or 14 with a valid GS1 check digit), ISBNs, ASINs and URL product ids found in the
+    texts (upper case). Read by the commons' ``idcheck.identifiers``: a digit run that is not a valid GTIN (an order
+    number, a timestamp) is no longer an identifier, which stops two unrelated purchases from "sharing" one."""
+    out: set[str] = set()
     for text in texts:
-        raw = unquote(str(text or ""))
-        out.update(m.group(1).upper() for m in ASIN_RE.finditer(raw.upper()))
-        out.update(m.group(1) for m in EAN_RE.finditer(raw))
-        out.update(m.group(1).upper() for m in URL_ID_RE.finditer(raw) if any(c.isdigit() for c in m.group(1)))
+        found = _identifiers(unquote(str(text or "")))
+        for kind in ("ean", "isbn", "asin", "sku"):
+            out.update(found[kind])
     return out
 
 
