@@ -2,20 +2,18 @@
 
 Tolerant on purpose: invalid JSON blocks are repaired when trivial and skipped otherwise, ``@graph`` / arrays /
 ``ItemList`` / ``ProductGroup.hasVariant`` / ``BuyAction.object`` are walked, ``AggregateOffer`` and lists of
-offers become one Offer per seller. Only bs4's stdlib ``html.parser`` is needed.
+offers become one Offer per seller.
 """
 
 from __future__ import annotations
 
 import html as htmllib
-import json
 import re
 from dataclasses import dataclass, field
-from typing import Any, Iterator, Optional
+from typing import Any, Optional
 from urllib.parse import urljoin
 
-from bs4 import BeautifulSoup
-
+from ..hoard_link.web.meta import jsonld_blocks
 from ..model import (IN_STOCK, LOCAL_PICKUP, OUT_OF_STOCK, PREORDER, RESTOCK_SCHEDULED, UNKNOWN, Offer)
 from .phrases import parse_number
 
@@ -56,33 +54,6 @@ class JsonLdResult:
     blocks: int = 0
     invalid_blocks: int = 0
     breadcrumbs: list[str] = field(default_factory=list)
-
-
-# ---------------------------------------------------------------------------------------------- loading
-def _load(raw: str) -> Optional[Any]:
-    raw = (raw or "").strip()
-    if not raw:
-        return None
-    raw = re.sub(r"^\s*<!--|-->\s*$", "", raw).strip()
-    for candidate in (raw, re.sub(r",\s*([}\]])", r"\1", raw)):
-        try:
-            return json.loads(candidate, strict=False)
-        except ValueError:
-            continue
-    return None
-
-
-def load_blocks(soup: BeautifulSoup) -> tuple[list[Any], int]:
-    """All parseable ld+json payloads and the number of blocks that could not be parsed."""
-    payloads: list[Any] = []
-    invalid = 0
-    for tag in soup.find_all("script", attrs={"type": re.compile(r"ld\+json", re.I)}):
-        data = _load(tag.string if tag.string is not None else tag.get_text())
-        if data is None:
-            invalid += 1
-        else:
-            payloads.append(data)
-    return payloads, invalid
 
 
 # ---------------------------------------------------------------------------------------------- helpers
@@ -275,24 +246,14 @@ def _dedupe(offers: list[Offer]) -> list[Offer]:
     return out
 
 
-def extract_jsonld(soup: BeautifulSoup, base_url: str = "") -> JsonLdResult:
-    payloads, invalid = load_blocks(soup)
+def extract_jsonld(html: Any, base_url: str = "") -> JsonLdResult:
+    """Offers from the page's ld+json blocks. The blocks are loaded (and trivially repaired) by the commons'
+    ``jsonld_blocks``; this module owns the shop-specific walk that turns them into Offers."""
+    payloads, errors = jsonld_blocks(str(html))
+    invalid = len(errors)
     result = JsonLdResult(blocks=len(payloads) + invalid, invalid_blocks=invalid)
     for payload in payloads:
         _visit(payload, base_url, result, False)
     result.products = _dedupe(result.products)
     result.listed = _dedupe(result.listed)
     return result
-
-
-def iter_product_nodes(payloads: list[Any]) -> Iterator[dict]:  # pragma: no cover — debugging helper
-    for payload in payloads:
-        stack = [payload]
-        while stack:
-            item = stack.pop()
-            if isinstance(item, list):
-                stack.extend(item)
-            elif isinstance(item, dict):
-                if _types(item) & PRODUCT_TYPES:
-                    yield item
-                stack.extend(v for v in item.values() if isinstance(v, (dict, list)))

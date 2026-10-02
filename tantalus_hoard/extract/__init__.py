@@ -25,7 +25,8 @@ from ..hoard_link.web.blocks import HTTP_5XX, detect_block
 from ..llm import LLM
 from ..model import (COMING_SOON, IN_STOCK, LOCAL_PICKUP, OUT_OF_STOCK, PREORDER, RESTOCK_SCHEDULED, UNKNOWN, Extraction,
                      FetchResult, Offer)
-from . import jsonld, listing, meta as meta_mod, moonshine, nvidia, phrases, sites, text as text_mod
+from ..hoard_link.web import htmltext
+from . import jsonld, listing, meta as meta_mod, moonshine, nvidia, phrases, sites
 from .llm_extract import llm_extract
 from .sites import (is_first_party_seller, is_marketplace_host, needs_browser, profile_for_host, retailer_for_host,
                     source_level_for_host)
@@ -112,10 +113,10 @@ def _extract_html(ex: Extraction, body: str, url: str, fr: FetchResult, hints: d
     profile = profile_for_host(url)
     today = _today(hints)
 
-    ld = jsonld.extract_jsonld(soup, url)
-    meta = meta_mod.extract_meta(soup, url)
-    full = text_mod.full_text(soup)
-    readable = text_mod.readable_text(soup)
+    ld = jsonld.extract_jsonld(body, url)
+    meta = meta_mod.extract_meta(soup, url, body)
+    full = htmltext.readable(body, drop_chrome=False)[1]
+    readable = htmltext.readable(body)[1]
     headline = _headline(soup, profile)
     ex.title = (headline or meta.title or (soup.title.get_text(" ", strip=True) if soup.title else "")).strip()[:300]
 
@@ -332,8 +333,8 @@ def _key(value: Any) -> str:
 
 def _finish(ex: Extraction, readable: str, url: str, hints: dict, profile: Any, *, decided: bool) -> None:
     ex.text_excerpt = readable[:TEXT_EXCERPT_MAX]
-    text_ok = text_mod.quality_ok(readable)
-    ex.content_hash = text_mod.content_hash(readable) if text_ok else ""
+    text_ok = not htmltext.quality(readable)
+    ex.content_hash = htmltext.content_hash(readable) if text_ok else ""
     ex.quality_ok = text_ok or decided
     if not text_ok and not decided:
         ex.notes.append("readable text is degenerate (empty, tiny or navigation-only)")

@@ -14,7 +14,8 @@ from bs4 import BeautifulSoup
 
 from tantalus_hoard.extract import extract, phrases, sites
 from tantalus_hoard.extract import jsonld as jsonld_mod
-from tantalus_hoard.extract import listing, text as text_mod
+from tantalus_hoard.extract import listing
+from tantalus_hoard.hoard_link.web import htmltext
 from tantalus_hoard.extract.llm_extract import validate_answer
 from tantalus_hoard.llm import LLM
 from tantalus_hoard.model import (IN_STOCK, LOCAL_PICKUP, MARKETPLACE_ONLY, OUT_OF_STOCK, PREORDER, RESTOCK_SCHEDULED,
@@ -270,7 +271,7 @@ def test_navigation_links_named_comprar_are_not_buy_controls():
 
 
 def test_related_products_sold_out_badge_outside_the_window_is_ignored():
-    filler = "<p>Descripción larga del producto. </p>" * 80
+    filler = "".join(f"<p>Descripción larga del producto, párrafo {i}. </p>" for i in range(80))  # the commons collapse identical lines
     html = product(f'<p class="price">12,00 €</p>{filler}<div class="related"><span>Agotado</span></div>')
     offer = extract(fr(html)).primary
     assert offer.availability in (UNKNOWN,) and offer.buy_button is None
@@ -345,27 +346,26 @@ def test_readable_text_drops_chrome_but_full_text_keeps_forms():
     html = ('<html><head><style>x{}</style><script>var a=1</script></head><body><nav>Inicio Menú</nav><header>Cabecera</header>'
             '<div id="cookie-banner">Aceptar cookies</div><main><h1>Título</h1><p>Contenido real del producto.</p>'
             '<form><button>Añadir al carrito</button></form></main><aside>Publicidad</aside><footer>Aviso legal</footer></body></html>')
-    soup = BeautifulSoup(html, "html.parser")
-    readable = text_mod.readable_text(soup)
+    readable = htmltext.readable(html)[1]
     assert "Título" in readable and "Contenido real" in readable
     for junk in ("Inicio", "Cabecera", "cookies", "Publicidad", "Aviso legal", "Añadir", "var a"):
         assert junk not in readable
-    assert "Añadir al carrito" in text_mod.full_text(soup)
+    assert "Añadir al carrito" in htmltext.readable(html, drop_chrome=False)[1]
 
 
 def test_chrome_ratio_and_quality_gate():
     menu = "\n".join(["Inicio", "Mi cuenta", "Carrito", "Ayuda", "Contacto", "Envíos", "Ofertas", "Blog"] * 10)
     prose = "Este producto es una caja de entrenador élite con nueve sobres de mejora y accesorios de juego. " * 8
-    assert text_mod.chrome_ratio(menu) > 0.9 and text_mod.chrome_ratio(prose) < 0.1
-    assert not text_mod.quality_ok(menu) and not text_mod.quality_ok("hola") and text_mod.quality_ok(prose)
+    assert htmltext.chrome_ratio(menu) > 0.9 and htmltext.chrome_ratio(prose) < 0.1
+    assert htmltext.quality(menu) and htmltext.quality("hola") and not htmltext.quality(prose)
     ex = extract(fr("<html><body><nav>Inicio</nav><nav>Ayuda</nav></body></html>", "https://shop.example/"))
     assert not ex.quality_ok and ex.content_hash == ""
 
 
 def test_content_hash_ignores_noise_but_not_prices():
-    a = text_mod.content_hash("Caja de entrenador  élite\nPrecio 49,99 € actualizado 12:34:56 hace 5 minutos sesión 0123456789abcdef0123")
-    b = text_mod.content_hash("caja de entrenador élite Precio 49,99 € actualizado 18:01 hace 2 horas sesión fedcba9876543210fedc")
-    c = text_mod.content_hash("Caja de entrenador élite Precio 44,99 € actualizado 12:34:56")
+    a = htmltext.content_hash("Caja de entrenador  élite\nPrecio 49,99 € actualizado 12:34:56 hace 5 minutos sesión 0123456789abcdef0123")
+    b = htmltext.content_hash("caja de entrenador élite\nPrecio 49,99 € actualizado 18:01 hace 2 horas sesión fedcba9876543210fedc")
+    c = htmltext.content_hash("Caja de entrenador élite\nPrecio 44,99 € actualizado 12:34:56")
     assert a == b and a != c and len(a) == 64
 
 

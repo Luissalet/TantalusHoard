@@ -9,6 +9,7 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Tag
 
+from ..hoard_link.web.meta import page_meta
 from ..model import IN_STOCK, MARKETPLACE_ONLY, OUT_OF_STOCK, PREORDER, UNKNOWN, Offer
 from .jsonld import map_availability
 from .phrases import norm, parse_number, snippet
@@ -34,14 +35,6 @@ class PageMeta:
     offer: Optional[Offer] = None        # from product:* meta
     microdata: list[Offer] = field(default_factory=list)
     has_product_markup: bool = False
-
-
-def _meta(soup: BeautifulSoup, *names: str) -> str:
-    for name in names:
-        tag = soup.find("meta", attrs={"property": name}) or soup.find("meta", attrs={"name": name})
-        if tag is not None and tag.get("content"):
-            return str(tag["content"]).strip()
-    return ""
 
 
 def _itemprop_value(tag: Tag) -> str:
@@ -113,32 +106,38 @@ def _microdata_offers(soup: BeautifulSoup, base_url: str) -> tuple[list[Offer], 
     return [], False
 
 
-def extract_meta(soup: BeautifulSoup, base_url: str = "") -> PageMeta:
-    meta = PageMeta()
-    meta.og_type = _meta(soup, "og:type").lower()
-    meta.title = _meta(soup, "og:title", "twitter:title") or (soup.title.get_text(strip=True) if soup.title else "")
-    meta.image = _meta(soup, "og:image", "twitter:image")
-    meta.url = _meta(soup, "og:url")
-    meta.site_name = _meta(soup, "og:site_name")
-    meta.description = _meta(soup, "og:description", "description")
-    if meta.image:
-        meta.image = urljoin(base_url, meta.image)
+def extract_meta(soup: BeautifulSoup, base_url: str = "", html: Optional[str] = None) -> PageMeta:
+    """OpenGraph / ``product:*`` offer and the page's own metadata (read by the commons' ``page_meta``) plus
+    the microdata offers (a parsed-tree walk that stays here)."""
+    page = page_meta(html if html is not None else str(soup), base_url)
+    props = {**page["properties"], **{"og:" + k: v for k, v in page["og"].items()}}
 
-    amount = _meta(soup, "product:sale_price:amount") or _meta(soup, "product:price:amount", "og:price:amount")
-    availability = _meta(soup, "product:availability", "og:availability")
+    def _meta(*names: str) -> str:
+        return next((props[n] for n in names if props.get(n)), "")
+
+    meta = PageMeta()
+    meta.og_type = page["og"].get("type", "").lower()
+    meta.title = page["title"]
+    meta.image = page["image"]
+    meta.url = page["og"].get("url", "")
+    meta.site_name = page["site_name"]
+    meta.description = page["description"]
+
+    amount = _meta("product:sale_price:amount") or _meta("product:price:amount", "og:price:amount")
+    availability = _meta("product:availability", "og:availability")
     if amount or availability:
         offer = Offer(method="opengraph", title=meta.title or None, image=meta.image or None, url=meta.url or None)
         if amount:
             offer.price = parse_number(amount)
-            offer.currency = (_meta(soup, "product:sale_price:currency", "product:price:currency", "og:price:currency") or "").upper() or None
+            offer.currency = (_meta("product:sale_price:currency", "product:price:currency", "og:price:currency") or "").upper() or None
             offer.evidence.append(snippet(f"product:price:amount={amount}"))
-            if _meta(soup, "product:sale_price:amount") and _meta(soup, "product:price:amount"):
-                offer.extra["list_price"] = parse_number(_meta(soup, "product:price:amount"))
+            if _meta("product:sale_price:amount") and _meta("product:price:amount"):
+                offer.extra["list_price"] = parse_number(_meta("product:price:amount"))
         if availability:
             offer.availability = OG_AVAILABILITY.get(norm(availability), UNKNOWN)
             offer.evidence.append(snippet(f"product:availability={availability}"))
-        offer.brand = _meta(soup, "product:brand") or None
-        offer.sku = _meta(soup, "product:retailer_item_id", "product:sku") or None
+        offer.brand = _meta("product:brand") or None
+        offer.sku = _meta("product:retailer_item_id", "product:sku") or None
         meta.offer = offer
     meta.microdata, micro = _microdata_offers(soup, base_url)
     meta.has_product_markup = bool(meta.offer) or micro or meta.og_type in ("product", "og:product", "product.item")

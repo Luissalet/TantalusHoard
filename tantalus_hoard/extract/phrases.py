@@ -18,7 +18,24 @@ from typing import Any, Iterable, Optional
 from bs4 import BeautifulSoup, Tag
 
 from ..model import COMING_SOON, IN_STOCK, MARKETPLACE_ONLY, OUT_OF_STOCK, PREORDER, RESTOCK_SCHEDULED, UNKNOWN
-from .text import _is_hidden
+
+_HIDDEN_CLASS = {"hidden", "d-none", "is-hidden", "u-hidden", "hide", "sr-only", "visually-hidden", "is-template"}
+_HIDDEN_STYLE = re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden", re.I)
+
+
+def _is_hidden(tag: Tag) -> bool:
+    """A parsed element the page hides from people (the commons' text view skips these too)."""
+    attrs = tag.attrs or {}
+    if "hidden" in attrs or str(attrs.get("aria-hidden", "")).lower() == "true" or attrs.get("type") == "hidden":
+        return True
+    style = attrs.get("style")
+    if style and _HIDDEN_STYLE.search(str(style)):
+        return True
+    classes = attrs.get("class") or []
+    if isinstance(classes, str):
+        classes = classes.split()
+    return any(c in _HIDDEN_CLASS for c in classes)
+
 
 EVIDENCE_MAX = 160
 WINDOW_CHARS = 1600        # text after the <h1> in which free-text availability phrases are trusted
