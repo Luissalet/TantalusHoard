@@ -19,6 +19,7 @@ FINAL_TOOLS = {
     "telegram_find_chat_id", "settings_set", "secret_set", "scheduler_status", "runs_list", "config_export", "config_import",
     "mail_deals", "mail_deals_scan", "mail_noise_report", "mail_deal_set",
     "radar_status", "radar_run", "releases_list", "radar_offers", "radar_setup",
+    "watchers_match_purchase", "watcher_mark_bought", "watcher_add",
 }
 
 
@@ -32,7 +33,7 @@ def test_manifest_matches_code():
 
 def test_manifest_has_only_allowed_top_level_keys():
     manifest = json.loads((ROOT / "faustus-plugin.json").read_text(encoding="utf-8"))
-    assert set(manifest) <= {"schema", "id", "name", "purpose", "capabilities", "placeholders", "defaults", "app", "mcp", "notes"}
+    assert set(manifest) <= {"schema", "id", "name", "purpose", "capabilities", "placeholders", "defaults", "app", "mcp", "notes", "x-family"}
     assert manifest["mcp"]["env"].keys() >= {"TANTALUS_URL", "TANTALUS_TOKEN_FILE"}
 
 

@@ -68,6 +68,10 @@ Cada punto que muestra la interfaz viene de una señal con nombre. Un modelo loc
 | Telegram | Crea un bot con @BotFather, guarda el token, escríbele `/start` y pulsa «Buscar chat id». |
 | Correo | Nada si Faustus tiene una cuenta de correo: Tantalus envía con esa cuenta y la contraseña se queda en Faustus. Los avisos llegan a la propia cuenta salvo que indiques destinatarios. Si no, servidor, puerto, usuario, contraseña de aplicación, remitente y destinatario (Gmail pide contraseña de aplicación). El ajuste **Enviar con** elige `auto`, `faustus` o `smtp`. |
 
+**Por el hub.** El ajuste `notify.via` (Ajustes → Avisos) elige quién entrega los canales de aviso (notificación de Windows, ntfy, Telegram y correo): `auto` (por defecto) manda UN aviso al hub de la familia cuando responde y recurre a los canales de arriba cuando no; `hub` usa solo el hub; `own` nunca lo llama. El hub decide los canales, las horas de silencio y la esfera (trabajo o personal) y guarda el historial; Tantalus traduce sus gravedades a las prioridades del hub (low → low, medium → normal, high → high), usa el grupo del evento (`restock`, `price_drop`, `mail_deal`, `release`…) y su clave de deduplicación para que un producto que oscila no avise dos veces. Los interruptores y la gravedad mínima de cada canal propio solo cuentan cuando Tantalus entrega por su cuenta. El evento del bus `tantalus.alert` sigue saliendo en cualquier caso. «Probar por el hub» manda un aviso de prueba.
+
+**Línea de presupuesto.** Un vigilante puede llevar una categoría de presupuesto de Ledger (`budget_category`, en el formulario del vigilante o en `watcher_create`/`watcher_update`). Cuando uno de sus avisos trae precio, Tantalus pregunta a `budget_status` de Ledger por el hub (2,5 s de espera, respuesta guardada 10 minutos, los fallos también) y añade «quedan 60,50 € en Ocio» al texto del aviso. Un aviso nunca espera a Ledger ni falla por su culpa.
+
 Las credenciales van en `.env` (`TANTALUS_TELEGRAM_TOKEN=…`) o se guardan desde Ajustes como solo escritura. La API nunca las devuelve. Cada canal tiene interruptor y gravedad mínima.
 
 ## Vigilantes preparados
@@ -94,7 +98,7 @@ Cada oferta de una tienda es una fila. Cuando pasa a comprable, el vigilante rec
 
 Los lanzamientos crean `RELEASE` cuando uno que encaja entra en el calendario, tres días antes (`radar.release_days_before`) y el mismo día. El aviso dice dónde comprar: cada cadena (en stock, preventa o agotado, con precio) y las tiendas más baratas con stock o preventa. El primer ciclo de un vigilante es silencioso, salvo un lanzamiento de hoy o de esos días. El radar pasa cada 10 minutos, y cada 5 si hay un lanzamiento hoy o mañana. **Novedades** enseña los lanzamientos y un panel por cadena.
 
-Configuración (`config.radar`): `enabled`, `sources` (`stocktcg.net`, `stocktcg.es`), `chains`, `languages`, `alert_other_shops`, `price_multiplier`, `release_days_before`, `max_products`, `track_chain_products`. Herramientas: `radar_status`, `radar_run`, `releases_list`, `radar_offers`, `radar_setup`.
+Configuración (`config.radar`): `enabled`, `sources` (`stocktcg.net`, `stocktcg.es`), `chains`, `languages`, `alert_other_shops`, `price_multiplier`, `release_days_before`, `max_products`, `track_chain_products`. Herramientas: `radar_status`, `radar_run`, `releases_list`, `radar_offers`, `radar_setup`, `watchers_match_purchase`, `watcher_mark_bought`, `watcher_add`.
 
 ## Ofertas del correo e informe de ruido
 
@@ -105,6 +109,17 @@ La página **Correo** tiene dos pestañas, **Ofertas** y **Ruido**. Las dos leen
 - **Informe de ruido.** Por dominio remitente en los últimos `mail.noise.days` (30): número de correos y porcentaje, categoría de Gmail, si hay enlace o dirección de baja (se muestra como texto, nunca se abre), el último correo y qué Hoard lee ese remitente (Ledger pagos, Phileas envíos, Kafka papeles, JobHunter empleo, Tantalus ofertas de tiendas). Los remitentes promocionales que ningún Hoard lee salen primero, como candidatos a limpiar. No cambia nada.
 
 Ajustes: `mail.deals.enabled`, `mail.deals.interval_min`, `mail.deals.history_days`, `mail.deals.ttl_days`, `mail.deals.stores`, `mail.deals.domains`, `mail.deals.gamerhoard_file`, `mail.deals.wishlist`, `mail.noise.days`.
+
+**Por la pasarela de correo del hub.** El ajuste `mail.source` elige de dónde se leen las ofertas: `auto` (por defecto) usa la pasarela de correo del hub de la familia cuando está lista y el lector de Faustus si no, `hub` solo la pasarela, `faustus` solo el lector. Con el hub, Tantalus registra un interés que cubre las promociones de los dominios remitentes de las tiendas que conoce (al arrancar y cada vez que cambian `mail.deals.stores` o `mail.deals.domains`), lee los mensajes que coinciden desde donde se quedó (marca `mail.hub.since_id`, que solo avanza cuando los correos ya están guardados), los pasa por el mismo analizador y reclama cada correo que convirtió en ofertas (`kind: deal`, `ref: hoard://tantalus/deal/<id>`) para que salga de la bandeja «sin dueño» del hub. El primer escaneo sigue siendo silencioso y las reglas de aviso son las mismas. Los registros del hub no traen los textos alternativos de las imágenes, así que un correo de campaña leído por el hub no tiene títulos de artículos sacados de sus imágenes. **El informe de ruido conserva su propio lector**: necesita la cabecera de todos los correos de la ventana, y el hub nunca da a una app correo fuera del interés que registró, así que `mail_noise_report` siempre ejecuta el lector de Faustus (solo lectura, como antes). Si el hub no puede dar el correo durante un escaneo, `auto` recurre al lector en ese escaneo.
+
+## Hub de la familia
+
+Además de los avisos y el correo (arriba):
+
+- **Agenda.** `GET /api/family/agenda` (con el token de esta app; el manifiesto lleva `x-family.agenda`) responde a la vista Hoy y al calendario del hub con elementos `release`: el calendario de lanzamientos del radar (lanzamientos con fecha de los productos que siguen los vigilantes, con dónde hay stock) y los objetivos cuya última comprobación dice «próximamente», «reposición anunciada» o «reserva» con una fecha que la página indicó. Nunca se envía nada sin fecha.
+- **Compras.** `watchers_match_purchase {title, merchant?, url?}` puntúa de 0 a 1 los vigilantes activos frente a una compra: un EAN, ASIN, id de producto o página de producto en común da 0,95-1,0; si no, la proporción de palabras de producto del vigilante que aparecen en el título y la URL (un vigilante con menos de dos palabras de producto nunca pasa de 0,7, una palabra obligatoria ausente divide la puntuación a la mitad, una palabra excluida la anula y una tienda que el vigilante ya sigue suma 0,08). `watcher_mark_bought {watcher_id, purchase_ref?}` pone el vigilante en estado `bought`: se desactiva (sin más comprobaciones, sin radar, sin cruce con ofertas), sus objetivos y su historial se quedan y se emite una vez `tantalus.watcher.bought {watcher_id, purchase_ref}`. Volver a activarlo borra el estado.
+- **Ideas de regalo.** `watcher_add {name|title|text, url?, budget|max_price?, source_ref?, budget_category?}` crea un vigilante de disponibilidad a partir de un nombre: palabras de producto del nombre, una página de producto opcional, un umbral de precio y consultas de descubrimiento. El mismo `source_ref` devuelve el mismo vigilante y el registro queda enlazado con la idea en el grafo de referencias del hub.
+- **Eventos.** `tantalus.watcher.bought`, `tantalus.watcher.added`, además de los ya existentes `tantalus.alert` y `tantalus.event.*`.
 
 ## Arrancar
 
@@ -128,7 +143,7 @@ Variables de entorno:
 
 ## Asistentes (MCP)
 
-`python mcp_server.py` es el puente stdio. Nunca abre la base de datos: pasa cada llamada a la app en marcha y la arranca si hace falta. Tiene 53 herramientas:
+`python mcp_server.py` es el puente stdio. Nunca abre la base de datos: pasa cada llamada a la app en marcha y la arranca si hace falta. Tiene 56 herramientas:
 
 - Para empezar: `tantalus_overview`.
 - Para consultas sueltas: `inspect_url`, `secondhand_search` y `web_search`.

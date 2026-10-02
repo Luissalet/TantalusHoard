@@ -66,7 +66,7 @@ def offer_matches(offer: Offer, terms: list[str], must: list[str], exclude: list
 class Engine:
     def __init__(self, store: Store, fetcher: Any, *, llm: Any, notifier: Any, websearch: Any, info_sentry: Any,
                  settings_get: Callable[[str, Optional[str]], Optional[str]], emit: Callable[[str, dict[str, Any]], None],
-                 clock: Callable[[], float] = time.time, rng: Optional[random.Random] = None):
+                 clock: Callable[[], float] = time.time, rng: Optional[random.Random] = None, budget: Any = None):
         self.store = store
         self.fetcher = fetcher
         self.llm = llm
@@ -77,6 +77,7 @@ class Engine:
         self.emit = emit
         self.clock = clock
         self.rng = rng or random.Random()
+        self.budget = budget          # BudgetNote: "quedan X € en <categoría>" from Ledger, only for watchers with a budget_category
 
     # ======================================================================================== helpers
     def _next_check(self, target: dict[str, Any], watcher: dict[str, Any], *, failed: int = 0, needs_human: bool = False) -> float:
@@ -380,7 +381,15 @@ class Engine:
         payload = {"id": event["id"], "type": event["type"], "severity": event["severity"], "title": event["title"],
                    "summary": event["summary"], "url": event["url"], "price": event.get("price"), "currency": event.get("currency"),
                    "confidence": event.get("confidence"), "watcher_name": watcher.get("name", ""),
-                   "image": (event.get("data") or {}).get("image", "")}
+                   "image": (event.get("data") or {}).get("image", ""), "dedupe_key": event.get("dedupe_key") or ""}
+        category = cfg.get("budget_category")
+        if self.budget is not None and category and event.get("price") is not None and channels:
+            try:
+                note = self.budget.note(category, self._lang())
+            except Exception:  # noqa: BLE001 - never block an alert on Ledger
+                note = ""
+            if note:
+                payload["budget_note"] = note
         results: list[dict[str, Any]] = []
         try:
             results = self.notifier.send(payload, channels) if channels else []
@@ -398,6 +407,10 @@ class Engine:
                                                                "title": event["title"], "summary": event["summary"], "url": event["url"],
                                                                "price": event.get("price"), "severity": event["severity"]})
         return results
+
+    def _lang(self) -> str:
+        lang = (self.setting("notify.language", None) or self.setting("ui.language", None) or "es").lower()[:2]
+        return lang if lang in ("es", "en") else "es"
 
     # ======================================================================================== second-hand
     def run_secondhand(self, watcher_id: str) -> dict[str, Any]:

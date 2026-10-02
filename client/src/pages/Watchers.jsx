@@ -140,6 +140,7 @@ function WatcherList() {
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-1">
                       <ModeChip mode={w.mode} />
+                      {w.status === "bought" && <Chip className="chip-ok">{t("status_bought")}</Chip>}
                       <Chip>{t("every")} {w.interval_min} min</Chip>
                       {w.mode === "availability" && <Chip>{t("n_targets", { n: w.targets })}</Chip>}
                       {w.buyable > 0 && <Chip className="chip-ok">{t("n_buyable", { n: w.buyable })}</Chip>}
@@ -481,6 +482,7 @@ function WatcherDetail({ id, editing }) {
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="mr-2">{w.name}</h1>
           <ModeChip mode={w.mode} />
+          {w.status === "bought" && <Chip className="chip-ok">{t("status_bought")}</Chip>}
           <label className="inline-flex items-center gap-2"><Switch checked={w.enabled} disabled={busy.enable} onChange={toggle} label={t("enabled")} /><span>{t("enabled")}</span></label>
           <div className="ml-auto flex flex-wrap gap-2">
             <Busy className="btn btn-primary" busy={busy.run} onClick={runNow}>{t("check_now")}</Busy>

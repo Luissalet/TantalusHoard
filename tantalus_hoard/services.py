@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import secrets as _secrets
+import threading
 import time
 from typing import Any, Callable, Optional
 
@@ -21,10 +22,11 @@ from .info import InfoSentry
 from .llm import LLM
 from .mail.deals import DEFAULTS as MAIL_DEFAULTS, NUMERIC as MAIL_NUMERIC, MailDeals
 from .mail.repo import MailRepo
-from .mail.source import MailSource
+from .mail.source import SOURCE_MODES, MailSource
 from .model import BUYABLE, MODE_AVAILABILITY, MODE_INFORMATION, MODE_SECONDHAND, MODES
 from .modelprobe import ModelProbe
-from .notify import CHANNELS, EMAIL_BACKENDS, Notifier
+from .budget import BudgetNote
+from .notify import CHANNELS, EMAIL_BACKENDS, VIA_MODES, Notifier
 from .presets import PRESETS, get_preset
 from .radar.core import Radar
 from .scheduler import Scheduler
@@ -40,6 +42,8 @@ UI_SETTINGS = {
     "llm.enabled": ("1", "0"),
     "scheduler.paused": ("0", "1"),
     "notify.ntfy.server": None,
+    "notify.via": VIA_MODES,
+    "mail.source": SOURCE_MODES,
     "notify.email.backend": EMAIL_BACKENDS,
     "notify.email.faustus_dir": None,
     "notify.email.faustus_owner": None,
@@ -105,9 +109,11 @@ class Services:
         self.websearch = websearch or WebSearch(self.fetcher, config=config)
         self.info = InfoSentry(self.fetcher, self.websearch, self.llm, clock=clock_fn)
         self.notifier = notifier or Notifier(config, self.db.get_setting, clock=clock_fn)
+        self.budget = BudgetNote(clock=clock_fn)
         self.engine = Engine(self.store, self.fetcher, llm=self.llm, notifier=self.notifier, websearch=self.websearch,
-                             info_sentry=self.info, settings_get=self.db.get_setting, emit=self._emit, clock=clock_fn)
-        self.mail = MailDeals(self.store, self.engine, MailRepo(self.db, clock_fn), MailSource(self.notifier, self.db.get_setting),
+                             info_sentry=self.info, settings_get=self.db.get_setting, emit=self._emit, clock=clock_fn, budget=self.budget)
+        self.mail = MailDeals(self.store, self.engine, MailRepo(self.db, clock_fn),
+                              MailSource(self.notifier, self.db.get_setting, settings_set=self.db.set_setting, clock=clock_fn),
                               self.db.get_setting, self.db.set_setting, clock=clock_fn)
         self.radar = Radar(self.db, self.store, self.engine, self.fetcher, self.db.get_setting, self.db.set_setting, clock=clock_fn)
         self.scheduler = Scheduler(self.engine, self.store, clock=clock_fn, enabled=config.scheduler,
@@ -123,6 +129,8 @@ class Services:
     def start(self) -> None:
         if self.config.scheduler:
             self.scheduler.start()
+            if not self.config.offline:
+                self._refresh_mail_interest()
 
     def stop(self) -> None:
         self.scheduler.stop()
@@ -137,6 +145,35 @@ class Services:
             except Exception:  # noqa: BLE001
                 pass
         self.db.close()
+
+    def background(self, fn: Callable[[], Any]) -> None:
+        """Run a fire-and-forget hint (a reference link for the hub) on its own thread; errors are ignored."""
+        def run() -> None:
+            try:
+                fn()
+            except Exception:  # noqa: BLE001 - hints to the hub, the database is the truth
+                pass
+        thread = threading.Thread(target=run, name="tantalus-background", daemon=True)
+        self._background = [t for t in getattr(self, "_background", []) if t.is_alive()] + [thread]
+        thread.start()
+
+    def drain_background(self, timeout: float = 5.0) -> None:
+        for thread in list(getattr(self, "_background", [])):
+            thread.join(timeout)
+
+    def refs_link(self, from_uri: str, to_uri: str, rel: str, *, from_label: str = "") -> dict[str, Any]:
+        """Tell the hub two records are the same thing (``hoard://`` references); the hub may be away."""
+        from .hoard_link import fam_refs
+        return fam_refs.link(from_uri, to_uri, rel, from_label=from_label)
+
+    def _refresh_mail_interest(self) -> None:
+        """Tell the hub which sale mails Tantalus wants (in the background: the hub may be slow or away)."""
+        def run() -> None:
+            try:
+                self.mail.refresh_interest()
+            except Exception:  # noqa: BLE001 - a hint to the hub; the next scan registers again
+                pass
+        threading.Thread(target=run, name="tantalus-mail-interest", daemon=True).start()
 
     def _emit(self, type_: str, data: dict[str, Any]) -> None:
         try:
@@ -221,6 +258,10 @@ class Services:
                 from .mail.stores import clean_domains
                 value = ", ".join(clean_domains(value))
             self.db.set_setting(key, value)
+        if any(k in values for k in ("mail.deals.stores", "mail.deals.domains", "mail.source")):
+            self.mail.source.forget_interest()
+            if not self.config.offline and self.config.scheduler:
+                self._refresh_mail_interest()
         return self.settings()
 
     # ------------------------------------------------------------------ presets
@@ -261,6 +302,7 @@ class Services:
         for w in self.store.watchers():
             ts = by_watcher.get(w["id"], [])
             row = {"id": w["id"], "name": w["name"], "mode": w["mode"], "enabled": w["enabled"], "interval_min": w["interval_min"],
+                   "status": "bought" if (w.get("config") or {}).get("status") == "bought" else ("active" if w["enabled"] else "paused"),
                    "last_run_ts": w.get("last_run_ts"), "next_run_ts": w.get("next_run_ts"), "last_error": w.get("last_error") or "",
                    "targets": len(ts), "buyable": sum(1 for t in ts if t["last_state"] in BUYABLE),
                    "needs_human": sum(1 for t in ts if t["status"] == "needs_human"),
@@ -312,7 +354,8 @@ class Services:
         ok, reason = self.llm.available()
         return {"service": SERVICE, "version": __version__, "data_dir": str(self.config.data_dir), "uptime_s": int(time.time() - self.started_at),
                 "counts": self.counts(), "scheduler": self.scheduler.status(), "channels": self.notifier.channels_status(),
-                "mail": {k: v for k, v in self.mail.status().items() if k in ("enabled", "first_scan_done", "last_run_ts", "next_run_ts", "last_error", "counts")},
+                "notify_via": self.notifier.via_status() if hasattr(self.notifier, "via_status") else {},
+                "mail": {k: v for k, v in self.mail.status().items() if k in ("enabled", "first_scan_done", "last_run_ts", "next_run_ts", "last_error", "counts", "source")},
                 "radar": self.radar.status(),
                 "llm": {"available": ok, "reason": reason, "calls": self.llm.calls, "failures": self.llm.failures, "skipped_budget": self.llm.skipped,
                         "budget": f"{self.llm.max_calls} per {int(self.llm.window_s // 60)} min"},

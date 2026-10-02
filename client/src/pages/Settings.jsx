@@ -91,6 +91,28 @@ function SecretsForm({ fields, secrets, onSaved, children, bar }) {
   );
 }
 
+// Who delivers the push channels: the family hub (it decides channels, quiet hours and sphere) or the channels below.
+function NotifyVia({ via, settings, setSetting, busy, onTest, testing, testResult }) {
+  const { t } = useApp();
+  const mode = settings["notify.via"] || "auto";
+  return (
+    <div className="panel space-y-3" aria-label={t("notify_via")}>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="block">
+          <span className="label">{t("notify_via")}</span>
+          <select className="field" style={{ width: "auto" }} value={mode} disabled={busy["notify.via"]} onChange={(e) => setSetting("notify.via", e.target.value)}>
+            {["auto", "hub", "own"].map((m) => <option key={m} value={m}>{t(`notify_via_${m}`)}</option>)}
+          </select>
+        </label>
+        {via?.effective && <Chip className={via.effective === "hub" ? "chip-accent" : ""}>{t("notify_via_now")}: {t(`notify_via_${via.effective}_now`)}</Chip>}
+        <Busy className="btn btn-sm" busy={testing} onClick={onTest}>{t("notify_via_test")}</Busy>
+        {testResult && <span className={`chip ${testResult.ok ? "chip-ok" : "chip-danger"}`} role="status">{testResult.ok ? t("test_ok") : `${t("test_failed")}: ${testResult.error}`}</span>}
+      </div>
+      <p className="help">{t("notify_via_hint")}</p>
+    </div>
+  );
+}
+
 function ChannelCard({ channel, info, secrets, settings, onChanged, testResult, onTest, testing }) {
   const { t, notify, toastError } = useApp();
   const [busy, run] = useBusy();
@@ -232,6 +254,16 @@ function MailSettings({ settings, onChanged }) {
   return (
     <div className="panel space-y-4">
       <p className="help">{t("mail_set_hint")}</p>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="block">
+          <span className="label">{t("mail_source")}</span>
+          <select className="field" style={{ width: "auto" }} value={settings["mail.source"] || "auto"} disabled={busy.mail} onChange={(e) => save({ "mail.source": e.target.value })}>
+            {["auto", "hub", "faustus"].map((m) => <option key={m} value={m}>{t(`mail_source_${m}`)}</option>)}
+          </select>
+        </label>
+        {info.data?.mail?.source?.effective && <Chip className={info.data.mail.source.effective === "hub" ? "chip-accent" : ""}>{t("mail_source_now")}: {info.data.mail.source.effective === "hub" ? "Hub" : "Faustus"}</Chip>}
+      </div>
+      <p className="help">{t("mail_source_hint")}</p>
       <div className="flex items-center gap-3">
         <Switch checked={settings["mail.deals.enabled"] === "1"} disabled={busy.mail} onChange={(v) => save({ "mail.deals.enabled": v ? "1" : "0" })} label={t("mail_set_enabled")} />
         <span>{t("mail_set_enabled")}</span>
@@ -272,7 +304,7 @@ export default function Settings() {
   if (!ns.data || !st.data || !sc.data) {
     return <div className="space-y-3"><h1>{t("nav_settings")}</h1><ErrorBox error={ns.error || st.error || sc.error} /><p className="help">…</p></div>;
   }
-  const { channels, secrets, settings, recent } = ns.data;
+  const { channels, secrets, settings, recent, via } = ns.data;
   const status = st.data;
   const hosts = sc.data.hosts || [];
 
@@ -284,6 +316,11 @@ export default function Settings() {
   const test = (channel) => run(`test-${channel}`, async () => {
     const r = await api.call("notify_test", { channel });
     setTests((x) => ({ ...x, [channel]: r }));
+    await ns.reload();
+  });
+  const testViaHub = () => run("test-hub-notify", async () => {
+    const r = await api.call("notify_test", { via: "hub" });
+    setTests((x) => ({ ...x, hubnotify: r }));
     await ns.reload();
   });
   const fbLogin = () => run("fb", async () => {
@@ -321,6 +358,7 @@ export default function Settings() {
       </Section>
 
       <Section id="sec-channels" title={t("sec_channels")}>
+        <NotifyVia via={via} settings={settings} setSetting={setSetting} busy={busy} onTest={testViaHub} testing={busy["test-hub-notify"]} testResult={tests.hubnotify} />
         <div className="grid gap-4 xl:grid-cols-2">
           {CHANNELS.map((c) => (
             <ChannelCard key={c} channel={c} info={channels[c] || {}} secrets={secrets} settings={settings} onChanged={reloadAll}

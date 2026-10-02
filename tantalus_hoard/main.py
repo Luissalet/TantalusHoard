@@ -12,11 +12,12 @@ from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import __version__
+from .agenda import make_provider
 from .api import ROUTERS
 from .config import Config
 from .errors import TantalusError
 from .guard import install_guard
-from .hoard_link import family
+from .hoard_link import family, fam_agenda
 from .services import Services
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -42,6 +43,8 @@ def create_app(config: Config | None = None, services: Services | None = None) -
     family.configure("tantalus", str(config.data_dir), token_file=str(config.token_path))
 
     install_guard(app, config.allowed_hosts)
+    # the family agenda (release days): the hub asks with this app's bearer token
+    fam_agenda.install_fastapi(app, make_provider(lambda: getattr(app.state, "services", None), lambda: f"http://127.0.0.1:{config.port or 5197}"))
 
     @app.exception_handler(TantalusError)
     async def tantalus_error(_: Request, exc: TantalusError):

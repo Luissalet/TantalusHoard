@@ -52,7 +52,7 @@ function shFormFromSettings(fields, settings) {
 
 export function emptyForm(mode = "availability") {
   return {
-    mode, name: "", interval_min: DEFAULT_INTERVAL[mode], discovery_interval_h: "24", enabled: true, notes: "",
+    mode, name: "", interval_min: DEFAULT_INTERVAL[mode], discovery_interval_h: "24", enabled: true, notes: "", budget_category: "",
     terms: "", must: "", exclude: "", region: "", stores: "", seller: "retail_only", alert_on: [...DEFAULT_ALERTS],
     require_confidence: "75", revalidate_seconds: "60", cooldown_minutes: "20", min_drop_pct: "5", price_threshold: "", msrp: "", scalper_multiplier: "",
     disc_queries: "", disc_retailers: "", targets: "",
@@ -70,6 +70,7 @@ export function formFromWatcher(w, packs) {
   f.discovery_interval_h = str(w.discovery_interval_h);
   f.enabled = !!w.enabled;
   f.notes = w.notes || "";
+  f.budget_category = str(c.budget_category);
   if (w.mode === "availability") {
     const p = c.product || {};
     const pol = c.policies || {};
@@ -121,6 +122,7 @@ function formFromDraft(draft, packs) {
 
 export function buildConfig(form, base, packs) {
   const cfg = { ...(base || {}) };
+  put(cfg, "budget_category", form.budget_category.trim());
   if (form.mode === "availability") {
     const product = { ...(cfg.product || {}) };
     put(product, "terms", splitList(form.terms));
@@ -302,6 +304,9 @@ export default function WatcherForm({ watcher, draft, onSaved, onCancel }) {
             <Field label={t("discovery_interval_h")} hint={t("discovery_interval_hint")}><input className="field num" inputMode="numeric" value={form.discovery_interval_h} onChange={setInput("discovery_interval_h")} /></Field>
           )}
         </Grid>
+        {form.mode !== "information" && (
+          <Field label={t("budget_category")} hint={t("budget_category_hint")}><input className="field" value={form.budget_category} onChange={setInput("budget_category")} placeholder={t("budget_category_ph")} /></Field>
+        )}
         <Field label={t("notes")}><textarea className="field" rows={2} value={form.notes} onChange={setInput("notes")} /></Field>
         <label className="inline-flex items-center gap-2"><Switch checked={form.enabled} onChange={set("enabled")} label={t("enabled")} /><span>{t("enabled")}</span></label>
       </Block>

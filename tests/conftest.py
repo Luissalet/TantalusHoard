@@ -82,6 +82,19 @@ class FakeNotifier:
         return {"ok": False}
 
 
+@pytest.fixture(autouse=True)
+def no_family_hub(monkeypatch):
+    """No test talks to a real hub: the notification centre, the mail gateway and the reference graph answer "away" unless a test fakes them."""
+    from tantalus_hoard.hoard_link import fam_mail, fam_notify, fam_refs
+
+    monkeypatch.setattr(fam_notify, "hub_available", lambda timeout=1.0: False)
+    monkeypatch.setattr(fam_notify, "notify", lambda *a, **k: {"ok": False, "error": "hub unreachable"})
+    monkeypatch.setattr(fam_mail, "available", lambda timeout=1.0: False)
+    monkeypatch.setattr(fam_mail, "register_interest", lambda *a, **k: {"ok": False, "error": "hub unreachable"})
+    monkeypatch.setattr(fam_mail, "claim", lambda *a, **k: {"ok": False, "error": "hub unreachable"})
+    monkeypatch.setattr(fam_refs, "link", lambda *a, **k: {"ok": False, "error": "hub unreachable"})
+
+
 def make_config(tmp_path: Path, **overrides) -> Config:
     base = dict(data_dir=tmp_path / "data", port=0, port_strict=False, data_dir_configured=True, scheduler=False,
                 browser=False, offline=False, secrets={})

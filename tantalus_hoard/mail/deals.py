@@ -139,7 +139,9 @@ class MailDeals:
             for msg in messages:
                 summary["scanned"] += 1
                 self._ingest(msg, stores, wl, first_scan, now, summary)
-            if first_scan and len(messages) < limit:
+            if answer.get("via") == "hub":
+                self.source.commit()                           # the hub's watermark moves only once its messages are stored
+            if first_scan and len(messages) < limit and not answer.get("more"):
                 self.put("mail.deals.first_scan_done", "1")   # the backlog is consumed: from now on a match notifies
             summary["notified"] += self._notify_pending(now)
             return self._finish(run_id, summary, now)
@@ -167,6 +169,7 @@ class MailDeals:
         mail_ts = float(msg.get("ts") or 0) or now
         if rows:
             summary["sale_mails"] += 1
+        first_saved = None
         for row in rows:
             expires = row["ends_ts"] if row.get("ends_known") and row.get("ends_ts") else mail_ts + ttl * 86400
             deal = {**row, "message_id": message_id, "store_id": shop["id"], "store": shop["name"], "subject": str(msg.get("subject") or "")[:300],
@@ -175,14 +178,17 @@ class MailDeals:
             verdict = evaluate(deal, wl, store_wishlist=bool(shop.get("wishlist_style")), watch_hits=self.watch_hits)
             deal.update(wishlist=verdict["wishlist"], matched=verdict["matched"], match_source=verdict["source"], match_label=verdict["label"],
                         owned=verdict["owned"])
-            _saved, created = self.repo.add(deal)
+            saved, created = self.repo.add(deal)
+            if first_saved is None and saved and saved.get("id") is not None:
+                first_saved = saved["id"]
             if created:
                 summary["deals_new"] += 1
                 summary["matched_new"] += 1 if verdict["matched"] else 0
                 summary["owned"] += 1 if verdict["owned"] else 0
 
         self.repo.mark_seen(message_id, len(rows))
-
+        if first_saved is not None and msg.get("hub_id") is not None:
+            self.source.claim(msg["hub_id"], f"hoard://tantalus/deal/{first_saved}")      # "this mail is mine" (a hub-read mail)
 
     # ------------------------------------------------------------------ alerts
     def _summary(self, deal: dict[str, Any], lang: str) -> str:
@@ -294,7 +300,20 @@ class MailDeals:
                 "last_error": self.get("mail.deals.last_error", "") or "", "last_summary": summary,
                 "stores": [{"id": s["id"], "name": s["name"], "kind": s["kind"], "domains": s["domains"]} for s in self.stores()],
                 "available_stores": [{"id": s["id"], "name": s["name"], "kind": s["kind"]} for s in DEFAULT_STORES],
-                "wishlist": wl.summary(), "counts": self.repo.counts(), "running": self._lock.locked()}
+                "wishlist": wl.summary(), "counts": self.repo.counts(), "running": self._lock.locked(),
+                "source": self.source_status()}
+
+    def source_status(self) -> dict[str, Any]:
+        try:
+            return self.source.source_status()
+        except Exception:  # noqa: BLE001
+            return {}
+
+    def refresh_interest(self, *, force: bool = True) -> dict[str, Any]:
+        """Register (again) with the hub which sender domains Tantalus wants. A no-op when ``mail.source`` is ``faustus``."""
+        if self.source.source_setting() == "faustus" or not hasattr(self.source, "ensure_interest"):
+            return {"ok": False, "skipped": "mail.source is faustus"}
+        return self.source.ensure_interest([d for s in self.stores() for d in s["domains"]], force=force)
 
     # ------------------------------------------------------------------ noise
     def noise(self, days: Optional[int] = None, *, top: int = 25, refresh: bool = False) -> dict[str, Any]:

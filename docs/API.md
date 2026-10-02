@@ -55,6 +55,7 @@ Annotations: none.
 | `enabled` (boolean) | no |  |
 | `notes` (string) | no |  |
 | `targets` (array) | no | availability: product or retailer-search URLs to add right away. |
+| `budget_category` (string) | no | Ledger budget category: alerts with a price add 'quedan X € en <categoría>'. |
 
 ## `watcher_update`
 
@@ -71,6 +72,7 @@ Annotations: none.
 | `discovery_interval_h` (integer/null) | no |  |
 | `enabled` (boolean/null) | no |  |
 | `notes` (string/null) | no |  |
+| `budget_category` (string/null) | no | Ledger budget category for the alert text; empty clears it. |
 
 ## `watcher_delete`
 
@@ -441,7 +443,8 @@ Annotations: openWorldHint.
 
 | Argument | Required | Description |
 |---|---|---|
-| `channel` (toast \| hub \| ntfy \| telegram \| email) | yes |  |
+| `channel` (toast \| hub \| ntfy \| telegram \| email) | no |  |
+| `via` (own \| hub) | no | hub = a sample notification through the family hub's notification centre (it decides the channels); own = test the channel itself. |
 
 ## `telegram_find_chat_id`
 
@@ -453,7 +456,7 @@ Annotations: readOnlyHint, idempotentHint, openWorldHint.
 
 Change settings: channels, ntfy server, e-mail backend and Faustus folder, language, model, pause. Ajustes.
 
-Keys: notify.<channel>.enabled|min_severity, notify.ntfy.server, notify.email.backend|faustus_dir|faustus_owner, notify.language, llm.enabled, scheduler.paused, mail.deals.enabled|interval_min|history_days|ttl_days|stores|domains|gamerhoard_file|wishlist, mail.noise.days.
+Keys: notify.via auto|hub|own, mail.source auto|hub|faustus, notify.<channel>.enabled|min_severity, notify.ntfy.server, notify.email.backend|faustus_dir|faustus_owner, notify.language, llm.enabled, scheduler.paused, mail.deals.enabled|interval_min|history_days|ttl_days|stores|domains|gamerhoard_file|wishlist, mail.noise.days.
 
 Annotations: none.
 
@@ -610,6 +613,55 @@ Annotations: readOnlyHint, idempotentHint.
 | `chains_only` (boolean) | no |  |
 | `product_key` (string) | no | Aggregator product slug, e.g. 30th-anniversary--etb. |
 | `limit` (integer) | no |  |
+
+## `watchers_match_purchase`
+
+Which watchers were waiting for this purchase? Score 0..1 by title, shop and EAN/ASIN. ¿Ya lo he comprado?
+
+Fuzzy match of a purchase (title, merchant, URL) against active watchers: shared product words, same EAN, ASIN or product page. Read-only. Sinónimos: compré esto, vigilante de este producto, coincide con una compra.
+
+Annotations: readOnlyHint, idempotentHint.
+
+| Argument | Required | Description |
+|---|---|---|
+| `title` (string) | yes | What was bought (the order's item title). |
+| `merchant` (string) | no |  |
+| `url` (string) | no | Product URL of the purchase when known (EAN, ASIN or product id are matched). |
+| `min_score` (number) | no | Hide matches below this score. |
+
+## `watcher_mark_bought`
+
+Mark a watcher as bought: stops its checks, keeps the history. Ya lo he comprado, dejar de vigilar.
+
+Status bought, emits tantalus.watcher.bought {watcher_id, purchase_ref}. watcher_update enabled=true watches it again. Sinónimos: comprado, dejar de vigilar, archivar vigilante.
+
+Annotations: none.
+
+| Argument | Required | Description |
+|---|---|---|
+| `watcher_id` (string/integer) | yes | Watcher id (from watcher_list or watchers_match_purchase). |
+| `purchase_ref` (string) | no | hoard:// reference of the purchase, kept on the watcher. |
+
+## `watcher_add`
+
+Watch a product for a price or a restock from just a name (and URL). Vigilar algo, idea de regalo.
+
+Creates an availability watcher with the name's words, an optional product page and price limit (budget), idempotent by source_ref. Sinónimos: vigila esto, avísame cuando baje de precio, regalo, lista de deseos.
+
+Annotations: none.
+
+| Argument | Required | Description |
+|---|---|---|
+| `name` (string) | no | What to watch for (product name). title or text work as aliases. |
+| `title` (string) | no |  |
+| `text` (string) | no |  |
+| `url` (string) | no | Optional product page to watch right away. |
+| `budget` (number/null) | no | Alert when the price falls to or below this. max_price is an alias. |
+| `max_price` (number/null) | no |  |
+| `source_ref` (string) | no | hoard:// reference of where the idea came from (a gift idea); same ref = same watcher. |
+| `budget_category` (string) | no |  |
+| `notes` (string) | no |  |
+| `interval_min` (integer) | no |  |
 
 ## `radar_setup`
 

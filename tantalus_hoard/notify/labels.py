@@ -67,6 +67,8 @@ def compose(event: dict[str, Any], lang: str = "es") -> tuple[str, str]:
     price = format_price(event.get("price"), event.get("currency"), lang) if event.get("price") not in (None, "") else ""
     if price:
         lines.append(price)
+    if event.get("budget_note"):
+        lines.append(str(event["budget_note"]).strip())
     try:
         if event.get("confidence") not in (None, ""):
             lines.append(f"{words['confidence']}: {round(float(event['confidence']))}%")

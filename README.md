@@ -6,7 +6,7 @@
 
 <img src="app-icon.png" alt="" width="96" align="right">
 
-Tantalus's Hoard is a local product watcher. It tells you when a product comes back in stock, when its price falls or crosses your limit, when pre-orders open or a new SKU appears at a retailer. It also finds second-hand bargains on Wallapop or Facebook Marketplace and flags material news from official pages, feeds and web searches. The dashboard opens on what is new since your last visit. Alerts go out as Windows notifications, family bus events, ntfy pushes to your phone, Telegram messages or email. Every function is also an MCP tool for assistants.
+Tantalus's Hoard is a local product watcher. It tells you when a product comes back in stock, when its price falls or crosses your limit, when pre-orders open or a new SKU appears at a retailer. It also finds second-hand bargains on Wallapop or Facebook Marketplace and flags material news from official pages, feeds and web searches. The dashboard opens on what is new since your last visit. Alerts go out through the family hub's notification centre, or as Windows notifications, family bus events, ntfy pushes to your phone, Telegram messages or email. Every function is also an MCP tool for assistants.
 
 For trading-card products it also follows the shop-by-shop stock and the release calendar published by public stock aggregators (stocktcg.net and stocktcg.es), so it can say "today wave 2 comes out: sold out at Carrefour and GAME, pre-order at these shops" and alert when a chain such as Carrefour restocks, even though Carrefour cannot be read directly.
 
@@ -56,6 +56,10 @@ Every point shown in the UI comes from a named signal. An optional local model o
 | Telegram | Create a bot with @BotFather, save the token, write `/start` to the bot, then press "Find chat id". |
 | Email | None when Faustus has a mail account: Tantalus sends through that account and the password stays in Faustus. Alerts go to the account itself unless you set recipients. Otherwise give SMTP host, port, user, app password, from and to (Gmail needs an app password). The **Send with** setting picks `auto`, `faustus` or `smtp`. |
 
+**Through the hub.** The setting `notify.via` (Settings → Notifications) picks who delivers the push channels (toast, ntfy, Telegram, email): `auto` (default) sends ONE notification to the family hub when it answers and falls back to the channels above when it does not; `hub` only uses the hub; `own` never calls it. The hub decides the channels, the quiet hours and the work or personal sphere, and keeps the history; Tantalus maps its severities to the hub's priorities (low → low, medium → normal, high → high), uses the event's group (`restock`, `price_drop`, `mail_deal`, `release`…) and its dedupe key so a flapping product does not notify twice. The own channel switches and minimum severities apply only when Tantalus delivers itself. The bus event `tantalus.alert` keeps going out either way. "Test through the hub" sends a sample.
+
+**Budget line.** A watcher may carry a Ledger budget category (`budget_category`, in the watcher form or `watcher_create`/`watcher_update`). When one of its alerts has a price, Tantalus asks Ledger's `budget_status` through the hub (2.5 s timeout, answer cached for 10 minutes, failures cached too) and adds "quedan 60,50 € en Ocio" ("€60.50 left in Leisure") to the alert text. An alert never waits for Ledger or fails because of it.
+
 Secrets live in `.env` (`TANTALUS_TELEGRAM_TOKEN=…`) or are saved write-only from Settings. They are never returned by the API. Each channel has an on/off switch and a minimum severity.
 
 ## Ready-made watchers
@@ -94,6 +98,17 @@ The **Correo** page has two tabs, **Ofertas** and **Ruido**. Both read the mailb
 
 Settings: `mail.deals.enabled`, `mail.deals.interval_min`, `mail.deals.history_days`, `mail.deals.ttl_days`, `mail.deals.stores`, `mail.deals.domains`, `mail.deals.gamerhoard_file`, `mail.deals.wishlist`, `mail.noise.days`.
 
+**Through the hub's mail gateway.** The setting `mail.source` picks where the deals are read: `auto` (default) uses the family hub's mail gateway when it is ready and Faustus's reader otherwise, `hub` only the gateway, `faustus` only the reader. With the hub, Tantalus registers an interest covering the promotions of the sender domains of the shops it knows (at start and whenever `mail.deals.stores` or `mail.deals.domains` change), reads the matching messages from where it left off (watermark `mail.hub.since_id`, moved only after the mails are stored), feeds them to the same parser, and claims every mail it turned into deals (`kind: deal`, `ref: hoard://tantalus/deal/<id>`) so it leaves the hub's unowned tray. The first scan stays quiet and the notification rules are the same. The hub's records carry no image alt texts, so a campaign mail read through the hub has no item titles from its pictures. **The noise report keeps its own reader**: it needs the header of every mail in the window, and the hub never gives an app mail outside its registered interest, so `mail_noise_report` always runs the Faustus reader (read-only, as before). If the hub cannot give the mail during a scan, `auto` falls back to the reader for that scan.
+
+## Family hub
+
+Besides notifications and mail (above):
+
+- **Agenda.** `GET /api/family/agenda` (with this app's token; `x-family.agenda` is set in the manifest) answers the hub's Today view and calendar with `release` items: the radar's release calendar (dated releases of the products the watchers follow, with where they are in stock) and targets whose last check says coming soon, restock scheduled or pre-order with a date the page stated. Items without a date are never sent.
+- **Purchases.** `watchers_match_purchase {title, merchant?, url?}` scores active watchers 0..1 against a purchase: a shared EAN, ASIN, product id or product page gives 0.95-1.0; otherwise the share of the watcher's product words found in the title and URL (a watcher with fewer than two product words never exceeds 0.7, a missing required word halves the score, an excluded word zeroes it, a shop the watcher follows adds 0.08). `watcher_mark_bought {watcher_id, purchase_ref?}` sets the watcher's status to `bought`: it is disabled (no more checks, no radar, no deal matching), its targets and history stay, and `tantalus.watcher.bought {watcher_id, purchase_ref}` is emitted once. Turning the watcher on again clears the status.
+- **Gift ideas.** `watcher_add {name|title|text, url?, budget|max_price?, source_ref?, budget_category?}` creates an availability watcher from a name: product words from the name, an optional product page, a price threshold, discovery queries. The same `source_ref` returns the same watcher, and the record is linked to the idea in the hub's reference graph.
+- **Events.** `tantalus.watcher.bought`, `tantalus.watcher.added`, plus the existing `tantalus.alert` and `tantalus.event.*`.
+
 ## Run
 
 ```sh
@@ -108,9 +123,9 @@ Environment: `TANTALUS_PORT` (5197), `TANTALUS_DATA_DIR`, `TANTALUS_SCHEDULER=0`
 
 ## Assistants (MCP)
 
-`python mcp_server.py` is a stdio bridge. It never opens the database: it proxies to the running app and starts it when needed. There are 53 tools. Start with `tantalus_overview`. For one-off questions use `inspect_url`, `secondhand_search` and `web_search`. To set up watching use `watcher_create`, `target_add`, `discovery_run` and `candidate_accept`. [docs/API.md](docs/API.md) lists every tool:
+`python mcp_server.py` is a stdio bridge. It never opens the database: it proxies to the running app and starts it when needed. There are 56 tools. Start with `tantalus_overview`. For one-off questions use `inspect_url`, `secondhand_search` and `web_search`. To set up watching use `watcher_create`, `target_add`, `discovery_run` and `candidate_accept`. [docs/API.md](docs/API.md) lists every tool:
 
-`tantalus_overview`, `tantalus_status`, `watcher_list`, `watcher_get`, `watcher_create`, `watcher_update`, `watcher_delete`, `watcher_run`, `watcher_rescore`, `target_add`, `target_list`, `target_get`, `target_update`, `target_delete`, `target_check`, `target_resolve`, `inspect_url`, `events_list`, `events_mark_seen`, `event_dismiss`, `event_notify`, `listings_list`, `listing_set`, `info_items_list`, `info_item_set`, `candidates_list`, `candidate_accept`, `candidate_reject`, `discovery_run`, `web_search`, `secondhand_search`, `secondhand_facebook_login`, `packs_list`, `presets_list`, `presets_install`, `notify_status`, `notify_test`, `telegram_find_chat_id`, `settings_set`, `secret_set`, `scheduler_status`, `runs_list`, `config_export`, `config_import`, `mail_deals`, `mail_deals_scan`, `mail_noise_report`, `mail_deal_set`, `radar_status`, `radar_run`, `releases_list`, `radar_offers`, `radar_setup`.
+`tantalus_overview`, `tantalus_status`, `watcher_list`, `watcher_get`, `watcher_create`, `watcher_update`, `watcher_delete`, `watcher_run`, `watcher_rescore`, `target_add`, `target_list`, `target_get`, `target_update`, `target_delete`, `target_check`, `target_resolve`, `inspect_url`, `events_list`, `events_mark_seen`, `event_dismiss`, `event_notify`, `listings_list`, `listing_set`, `info_items_list`, `info_item_set`, `candidates_list`, `candidate_accept`, `candidate_reject`, `discovery_run`, `web_search`, `secondhand_search`, `secondhand_facebook_login`, `packs_list`, `presets_list`, `presets_install`, `notify_status`, `notify_test`, `telegram_find_chat_id`, `settings_set`, `secret_set`, `scheduler_status`, `runs_list`, `config_export`, `config_import`, `mail_deals`, `mail_deals_scan`, `mail_noise_report`, `mail_deal_set`, `radar_status`, `radar_run`, `releases_list`, `radar_offers`, `radar_setup`, `watchers_match_purchase`, `watcher_mark_bought`, `watcher_add`.
 
 Page text, titles, snippets and mail subjects are third-party data. Tool results say so, and the optional model receives them wrapped as untrusted content.
 

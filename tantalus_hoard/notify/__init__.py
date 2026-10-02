@@ -43,6 +43,9 @@ POWERSHELL_APP_ID = r"{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v
 DEFAULT_ENABLED = {"toast": True, "hub": True, "ntfy": False, "telegram": False, "email": False}
 HTTP_TIMEOUT_S = 10.0
 EMAIL_BACKENDS = ("auto", "faustus", "smtp")
+VIA_MODES = ("auto", "hub", "own")       # who delivers the push channels: the family hub, Tantalus's own code, or the hub with a fallback
+PUSH_CHANNELS = ("toast", "ntfy", "telegram", "email")   # the channels the hub's notification facet replaces ("hub" is the bus event)
+SEVERITY_PRIORITY = {"low": "low", "medium": "normal", "high": "high"}
 FAUSTUS_HELPER = Path(__file__).with_name("faustus_mail.py")
 FAUSTUS_TIMEOUT_S = 60
 FAUSTUS_STATUS_TTL_S = 300.0     # a good status is reused for five minutes, a failure for thirty seconds
@@ -88,7 +91,7 @@ class Notifier:
                  clock: Callable[[], float] = time.time, smtp_factory: Optional[Callable[..., Any]] = None,
                  toast_backend: Optional[Callable[[str, str, str, bool], None]] = None,
                  powershell_runner: Optional[Callable[..., Any]] = None, platform: Optional[str] = None, icon_path: Optional[Path] = None,
-                 faustus_runner: Optional[Callable[..., Any]] = None):
+                 faustus_runner: Optional[Callable[..., Any]] = None, hub_notify: Any = None):
         self.config = config
         self.get = db_settings_get
         self.transport = transport
@@ -100,6 +103,7 @@ class Notifier:
         self.icon_path = icon_path if icon_path is not None else REPO_ROOT / "app-icon.png"
         self.faustus_runner = faustus_runner or subprocess.run
         self._faustus_status: Optional[tuple[float, str, dict[str, Any]]] = None
+        self._hub_notify = hub_notify          # an object with notify() and hub_available(); default: hoard_link.fam_notify
 
     # ------------------------------------------------------------------ settings and status
     def _setting(self, key: str, default: str = "") -> str:
@@ -180,6 +184,57 @@ class Notifier:
         status["email"]["backend_setting"] = self._email_backend_setting()
         status["email"]["faustus_dir"] = str(self.faustus_dir() or "")
         return status
+
+    # ------------------------------------------------------------------ delivery through the family hub
+    @property
+    def hub(self) -> Any:
+        if self._hub_notify is None:
+            from ..hoard_link import fam_notify
+            self._hub_notify = fam_notify
+        return self._hub_notify
+
+    def via_setting(self) -> str:
+        """``notify.via``: ``auto`` (hub when it answers, own channels otherwise), ``hub`` (only the hub) or ``own``."""
+        value = self._setting("notify.via", "auto").lower()
+        return value if value in VIA_MODES else "auto"
+
+    def _hub_up(self) -> bool:
+        try:
+            return bool(self.hub.hub_available())
+        except Exception:  # noqa: BLE001
+            return False
+
+    def via_status(self) -> dict[str, Any]:
+        """What the next alert would use: ``{setting, effective: hub|own, hub_available}``."""
+        setting = self.via_setting()
+        up = self._hub_up() if setting != "own" else False
+        return {"setting": setting, "effective": "hub" if (setting == "hub" or (setting == "auto" and up)) else "own", "hub_available": up}
+
+    def _send_via_hub(self, event: dict[str, Any]) -> dict[str, Any]:
+        """One notification to the hub: it picks the channels, applies quiet hours and the work/personal sphere."""
+        title, body = compose(event, self._lang())
+        priority = SEVERITY_PRIORITY.get(str(event.get("severity") or "medium").lower(), "normal")
+        key = str(event.get("dedupe_key") or "") or ("tantalus:" + str(event.get("id") or title))
+        try:
+            answer = self.hub.notify(title, body, priority=priority, url=_http_url(event.get("url")),
+                                     group=str(event.get("type") or "alert").lower(), dedupe_key=key)
+        except Exception as exc:  # noqa: BLE001 - the notifier must never raise out of the engine
+            return {"ok": False, "error": f"hub notify: {type(exc).__name__}"}
+        if not isinstance(answer, dict):
+            return {"ok": False, "error": "hub notify: unexpected answer"}
+        if answer.get("ok"):
+            held = str(answer.get("held") or "")
+            return {"ok": True, "error": f"held by the hub ({held})" if held else "", "held": held, "hub_id": answer.get("id")}
+        return {"ok": False, "error": str(answer.get("error") or f"hub notify failed ({answer.get('status')})")[:200]}
+
+    def test_hub(self) -> dict[str, Any]:
+        """A sample notification through the hub, whatever ``notify.via`` says."""
+        words = WORDS[self._lang()]
+        sample = {"id": "test", "type": "INFO_CHANGE", "severity": "medium", "title": words["test_title"], "summary": words["test_body"],
+                  "url": "", "price": None, "currency": None, "confidence": None, "watcher_name": "", "image": "",
+                  "dedupe_key": f"tantalus:test:{int(self.clock())}"}
+        answer = self._send_via_hub(sample)
+        return {"channel": "hub_notify", "ok": answer["ok"], "error": answer.get("error", ""), "held": answer.get("held", ""), "via": "hub"}
 
     # ------------------------------------------------------------------ e-mail through Faustus
     def _email_backend_setting(self) -> str:
@@ -265,11 +320,24 @@ class Notifier:
 
     # ------------------------------------------------------------------ sending
     def send(self, event: dict[str, Any], channels: list[str]) -> list[dict[str, Any]]:
+        """Deliver ``event`` through ``channels``. With ``notify.via`` = ``auto``/``hub`` the push channels (toast, ntfy, telegram, email)
+        become ONE notification to the family hub, which decides channels, quiet hours and sphere; ``auto`` falls back to the own
+        channels when the hub does not answer, ``hub`` reports the failure instead, ``own`` never calls the hub. The ``hub`` channel
+        (the bus event) is independent of this."""
         results = []
         rank = SEVERITY_RANK.get(str(event.get("severity") or "medium").lower(), 1)
+        via = self.via_setting()
+        pushes = [c for c in channels if c in PUSH_CHANNELS]
+        hub_answer: Optional[dict[str, Any]] = None
+        if pushes and via != "own" and (via == "hub" or self._hub_up()):
+            hub_answer = self._send_via_hub(event)
         for channel in channels:
             if channel not in CHANNELS:
                 results.append({"channel": channel, "ok": False, "error": "unknown channel"})
+                continue
+            if hub_answer is not None and channel in PUSH_CHANNELS and (hub_answer["ok"] or via == "hub"):
+                results.append({"channel": channel, "ok": hub_answer["ok"], "error": hub_answer.get("error", ""), "via": "hub",
+                                "ts": self.clock()})
                 continue
             if not self._enabled(channel):
                 results.append({"channel": channel, "ok": False, "error": "disabled", "skipped": True})
@@ -479,4 +547,4 @@ def telegram_discover_chat_id(token: str, *, transport: Any = None) -> dict[str,
     return {"ok": False, "chat_id": "", "name": "", "error": "no messages yet: write to the bot first"}
 
 
-__all__ = ["Notifier", "CHANNELS", "EMAIL_BACKENDS", "telegram_discover_chat_id", "build_toast_ps1", "compose", "label", "LABELS", "format_price", "xml_escape"]
+__all__ = ["Notifier", "CHANNELS", "EMAIL_BACKENDS", "VIA_MODES", "PUSH_CHANNELS", "telegram_discover_chat_id", "build_toast_ps1", "compose", "label", "LABELS", "format_price", "xml_escape"]
