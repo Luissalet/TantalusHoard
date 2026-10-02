@@ -329,10 +329,15 @@ def test_agenda_lists_radar_releases_and_dated_targets(client):
     assert set(titles) == {"Wave 2 ETB", "Booster Bundle restock", "Booster Display ES"}                # no dateless items, no target without a date
     wave = titles["Wave 2 ETB"]
     assert wave["kind"] == "release" and wave["start"] == soon.isoformat() and wave["all_day"] and wave["priority"] == "high"
-    assert wave["url"] == "https://stocktcg.example/a" and "3/10" in wave["detail"] and wave["id"].startswith("tantalus:release:")
+    assert wave["url"] == "https://stocktcg.example/a" and "3 de 10 tiendas" in wave["detail"] and wave["id"].startswith("tantalus:release:")
     assert titles["Booster Bundle restock"]["priority"] == "normal"
-    assert titles["Booster Display ES"]["start"] == (today + timedelta(days=5)).isoformat() and "coming soon" in titles["Booster Display ES"]["detail"]
+    assert titles["Booster Display ES"]["start"] == (today + timedelta(days=5)).isoformat() and "próximamente" in titles["Booster Display ES"]["detail"]
     assert [i["start"] for i in res["items"]] == sorted(i["start"] for i in res["items"])
+    # the chains of the aggregator read as words, never as a Python list
+    svc.db.execute("UPDATE radar_releases SET data=? WHERE rkey='a'", (json.dumps({"stores_total": 68, "stores_buyable": 18, "where": {
+        "chains": [{"store": "GAME", "state": "OUT_OF_STOCK"}, {"store": "Carrefour", "state": "PREORDER"}], "shops": []}}),))
+    wave = {i["title"]: i for i in agenda(client, **{"from": today.isoformat(), "to": (today + timedelta(days=60)).isoformat()}).json()["items"]}["Wave 2 ETB"]
+    assert wave["detail"] == "18 de 68 tiendas con stock; GAME: agotado; Carrefour: reserva"
     narrow = agenda(client, **{"from": (today + timedelta(days=10)).isoformat(), "to": (today + timedelta(days=30)).isoformat()}).json()
     assert [i["title"] for i in narrow["items"]] == ["Booster Bundle restock"]
 

@@ -17,7 +17,7 @@ from .model import COMING_SOON, MODE_AVAILABILITY, PREORDER, RESTOCK_SCHEDULED
 from .radar.core import local_today
 
 DATED_STATES = (COMING_SOON, RESTOCK_SCHEDULED, PREORDER)
-STATE_LABEL = {COMING_SOON: "coming soon", RESTOCK_SCHEDULED: "restock scheduled", PREORDER: "pre-order"}
+STATE_LABEL = {COMING_SOON: "próximamente", RESTOCK_SCHEDULED: "reposición anunciada", PREORDER: "reserva"}
 
 
 def _iso_day(value: Any) -> str:
@@ -28,12 +28,26 @@ def _iso_day(value: Any) -> str:
         return ""
 
 
+STATE_ES = {"in_stock": "en stock", "IN_STOCK": "en stock", "OUT_OF_STOCK": "agotado", "out_of_stock": "agotado",
+            "PREORDER": "reserva", "preorder": "reserva", "COMING_SOON": "próximamente", "coming_soon": "próximamente",
+            "UNKNOWN": "sin datos", "unknown": "sin datos"}
+
+
 def _where(data: dict[str, Any]) -> str:
-    """One short line: how many shops have it and the chains."""
+    """One short line, in Spanish: how many shops have it and the state in the big chains."""
     bits = []
     if data.get("stores_total"):
-        bits.append(f"{data.get('stores_buyable') or 0}/{data['stores_total']} shops with stock")
-    chains = [f"{name}: {state}" for name, state in list((data.get("where") or {}).items())[:4]] if isinstance(data.get("where"), dict) else []
+        bits.append(f"{data.get('stores_buyable') or 0} de {data['stores_total']} tiendas con stock")
+    where = data.get("where")
+    chains: list[str] = []
+    if isinstance(where, dict):
+        rows = where.get("chains") if isinstance(where.get("chains"), list) else None
+        if rows is None:
+            rows = [{"store": k, "state": v} for k, v in where.items() if not isinstance(v, (list, dict))]
+        for row in rows[:4]:
+            if isinstance(row, dict) and row.get("store"):
+                state = str(row.get("state") or "")
+                chains.append(f"{row['store']}: {STATE_ES.get(state, state.lower().replace('_', ' '))}")
     return "; ".join(bits + chains)[:240]
 
 
