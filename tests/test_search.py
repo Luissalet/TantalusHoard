@@ -6,8 +6,8 @@ from pathlib import Path
 import httpx
 
 from tantalus_hoard.model import FetchResult, SearchHit
-from tantalus_hoard.search import (WebSearch, is_private_host, is_safe_url, normalize_url, parse_bing_html, parse_ddg_html, rrf_merge,
-                                   url_key)
+from tantalus_hoard.hoard_link.web import safety
+from tantalus_hoard.search import WebSearch, normalize_url, parse_bing_html, parse_ddg_html, rrf_merge, url_key
 
 FIX = Path(__file__).parent / "fixtures" / "search"
 
@@ -81,14 +81,25 @@ def test_ddg_ads_and_internal_links_skipped():
 
 
 # ------------------------------------------------------------------ url helpers
+def _safe(url):
+    """A result URL a person may be sent to: judged by the commons' policy (name only, no DNS)."""
+    return safety.check_url(url, safety.PUBLIC, lambda h, p: ["93.184.216.34"]) is None
+
+
 def test_safe_url_rules():
-    assert is_safe_url("https://www.game.es/producto/x")
+    assert _safe("https://www.game.es/producto/x")
     for bad in ("ftp://example.com/a", "javascript:alert(1)", "http://127.0.0.1/x", "http://10.0.0.5/", "http://192.168.1.1/",
                 "http://169.254.169.254/latest", "http://[::1]/", "http://localhost:8080/", "http://2130706433/", "http://printer.local/",
-                "https://user:pw@example.com/", "not a url", ""):
-        assert not is_safe_url(bad), bad
-    assert is_safe_url("http://93.184.216.34/")
-    assert is_private_host("0x7f.0.0.1")
+                "https://user:pw@example.com/", "not a url", "", "http://0x7f.0.0.1/", "http://100.64.0.1/"):
+        assert not _safe(bad), bad
+    assert _safe("http://93.184.216.34/")
+
+
+def test_search_results_pointing_at_private_hosts_are_dropped():
+    page = ('<li class="b_algo"><h2><a href="http://192.168.1.1/admin">router</a></h2></li>'
+            '<li class="b_algo"><h2><a href="https://ok.example/p">ok</a></h2></li>')
+    hits, _ = WebSearch(FakeFetcher({"bing.com": page, "duckduckgo": "<html></html>"})).search("q")
+    assert [h.url for h in hits] == ["https://ok.example/p"]
 
 
 def test_normalize_and_key():
@@ -170,23 +181,21 @@ def test_brave_key_from_config():
     assert "brave" in WebSearch(FakeFetcher({}), config=Cfg()).available_engines()
 
 
-def test_searxng_local_instance_via_own_transport():
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/search" and request.url.params["format"] == "json" and request.url.params["time_range"] == "month"
-        return httpx.Response(200, json={"results": [{"url": "https://sx.example/1", "title": "One", "content": "c", "publishedDate": "2026-09-02"}]})
-
-    ws = WebSearch(FakeFetcher({}), searxng_url="http://localhost:8080", transport=httpx.MockTransport(handler))
-    hits, errors = ws.search("q", engines=["searxng"], freshness_days=20)
+def test_searxng_local_instance_goes_through_the_fetcher_with_the_operator_profile():
+    data = {"results": [{"url": "https://sx.example/1", "title": "One", "content": "c", "publishedDate": "2026-09-02"}]}
+    fetcher = FakeFetcher({"localhost:8080": data})
+    hits, errors = WebSearch(fetcher, searxng_url="http://localhost:8080").search("q", engines=["searxng"], freshness_days=20)
     assert errors == {} and hits[0].url == "https://sx.example/1" and hits[0].published == "2026-09-02"
+    call = fetcher.calls[0]
+    assert call["url"] == "http://localhost:8080/search" and call["params"]["format"] == "json" and call["params"]["time_range"] == "month"
+    assert call["profile"] == "operator_local"      # the user's own instance may be on a private address; nothing else may
 
 
 def test_searxng_down_is_an_error_not_a_crash():
-    def handler(request):
-        raise httpx.ConnectError("refused")
-
-    ws = WebSearch(FakeFetcher({"duckduckgo": load("ddg_rtx.html")}), searxng_url="http://localhost:8080", transport=httpx.MockTransport(handler))
+    down = FetchResult(url="x", error="connection refused", error_kind="refused")
+    ws = WebSearch(FakeFetcher({"localhost:8080": down, "duckduckgo": load("ddg_rtx.html")}), searxng_url="http://localhost:8080")
     hits, errors = ws.search("q", engines=["searxng", "ddg"])
-    assert errors["searxng"].startswith("unreachable") and len(hits) == 10
+    assert errors["searxng"] == "connection refused" and len(hits) == 10
 
 
 def test_empty_query():
@@ -213,6 +222,6 @@ GNEWS = """<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><ti
 def test_parse_news_rss_keeps_publisher_and_decodes_bing_links():
     from tantalus_hoard.search import parse_news_rss
     g = parse_news_rss(GNEWS, "gnews")
-    assert len(g) == 2 and g[0].snippet.endswith("[https://www.xataka.com]") and g[0].published.startswith("Mon, 28 Sep")
+    assert len(g) == 2 and g[0].snippet.endswith("[https://www.xataka.com]") and g[0].published == "2026-09-28T07:00:00Z"   # ISO UTC now (was the raw RFC 2822 text)
     b = parse_news_rss(GNEWS, "bingnews")
     assert b[1].url == "https://www.msi.com/news/edgemesa" and b[1].snippet == "Mini PC with 128 GB of unified memory"

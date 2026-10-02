@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from tantalus_hoard.info import (InfoSentry, diff_lines, judge, judge_rules, normalised_hash, parse_feed, quality_gate, readable_text)
+from tantalus_hoard.hoard_link.web.htmltext import content_hash as normalised_hash, quality as quality_gate, readable as readable_text
+from tantalus_hoard.hoard_link.web.watch import diff_lines
+from tantalus_hoard.info import InfoSentry, judge, judge_rules
 from tantalus_hoard.model import FetchResult, InfoFinding, SearchHit
 
 NAV = "<nav><a href='/'>Inicio</a><a href='/x'>Tienda</a></nav><header>Cabecera global</header>"
@@ -138,13 +140,15 @@ def feed_row(**kw):
     return {"id": "f1", "kind": "feed", "value": "https://blog.example/feed.xml", "source_level": 4, **kw}
 
 
-def test_parse_feed_rss_atom_and_garbage():
-    rss = parse_feed(RSS)
-    assert [i["id"] for i in rss] == ["g-a", "https://blog.example/b"] and rss[0]["summary"] == "Precio desde 3.999 €"
-    atom = parse_feed(ATOM)
-    assert atom[0]["link"] == "https://atom.example/1" and atom[0]["published"].startswith("2026-09-30")
-    assert parse_feed("<html><body>no</body></html>") == [] and parse_feed("not xml") == []
-    assert parse_feed('<!DOCTYPE x [<!ENTITY a "b">]><rss><channel><item><title>&a;</title></item></channel></rss>') == []
+def test_atom_feeds_and_hostile_feeds_are_handled_by_the_sentry():
+    findings, upd = sentry(ok(ATOM, url="https://atom.example/feed")).check_source(feed_row(), WATCHER)
+    assert findings == [] and "tag:x,1" in upd["last_text"]                       # baseline
+    row = feed_row(last_hash=upd["last_hash"], last_text="")
+    findings, _ = sentry(ok(ATOM, url="https://atom.example/feed")).check_source(row, WATCHER)
+    assert findings[0].url == "https://atom.example/1" and findings[0].published.startswith("2026-09-30")
+    hostile = '<!DOCTYPE x [<!ENTITY a "b">]><rss><channel><item><title>&a;</title></item></channel></rss>'
+    findings, upd = sentry(ok(hostile)).check_source(feed_row(), WATCHER)
+    assert findings == [] and upd["last_error"] == "not a feed or empty"             # entities are never expanded
 
 
 def test_feed_baseline_then_only_new_items():
@@ -288,3 +292,13 @@ def test_date_and_price_patterns():
     for text in ("3.999 €", "€3,999", "$1,299.99", "1299 EUR", "1.299 euros"):
         assert _PRICE.search(text), text
     assert not _DATE.search("mayo es un mes") and not _PRICE.search("precio por determinar")
+
+
+def test_a_challenge_page_served_with_status_200_is_never_a_change():
+    challenge = ("<html><head><title>Just a moment...</title></head><body><div id='cf-challenge'>Checking your browser before accessing</div>"
+                 "<script src='https://challenges.cloudflare.com/turnstile/v0/api.js'></script></body></html>")
+    text = readable_text(article(*BASE))[1]
+    row = page_row(last_hash=normalised_hash(text), last_text=text)
+    findings, upd = sentry(ok(challenge)).check_source(row, WATCHER)
+    assert findings == [] and "last_hash" not in upd and "last_text" not in upd     # the stored baseline stays
+    assert upd["last_error"].startswith("blocked:") or "low quality" in upd["last_error"]

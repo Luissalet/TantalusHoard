@@ -13,30 +13,22 @@ import hashlib
 import logging
 import re
 import time
-import xml.etree.ElementTree as ET
 from typing import Any, Callable, Optional
 
-from bs4 import BeautifulSoup
-
 from .discovery import classify_host, fold, watcher_config
+from .hoard_link.web import watch
+from .hoard_link.web.feeds import parse_feed
+from .hoard_link.web.urls import registrable_domain
 from .model import InfoFinding
 from .search import WebSearch, host_of, url_key
 
 log = logging.getLogger("tantalus.info")
 
-MIN_WORDS = 40                 # below this a page is treated as empty / blocked / nav-only
-MAX_ADDED_LINES = 8
-MAX_LINE_CHARS = 200
-MAX_STORED_TEXT = 20_000
-MAX_SEEN = 400
-MAX_FEED_FINDINGS = 20
+MAX_SEEN = watch.MAX_SEEN
+MAX_FEED_FINDINGS = watch.MAX_FEED_FINDINGS
 MAX_FIRST_SEARCH_FINDINGS = 10
 MIDDLE_BAND = (30.0, 60.0)     # rule scores that may be refined by the model
 LLM_BUDGET = 6
-_DROP_TAGS = ("script", "style", "noscript", "nav", "header", "footer", "aside", "form", "svg", "iframe", "template", "dialog")
-_NOISE_ATTR = re.compile(r"cookie|consent|gdpr|onetrust", re.I)
-_BLOCK_PHRASES = ("enable javascript", "captcha", "access denied", "verify you are human", "just a moment", "acceso denegado",
-                  "activa javascript", "not a robot")
 
 
 # ----------------------------------------------------------------------------- text helpers
@@ -44,124 +36,13 @@ def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
 
 
+def _item_key(item: dict[str, Any]) -> str:
+    return str(item.get("id") or item.get("link") or item.get("title") or "")
+
+
 def _clip(text: str, n: int) -> str:
     text = re.sub(r"\s+", " ", text or "").strip()
     return text if len(text) <= n else text[: n - 1].rstrip() + "…"
-
-
-def readable_text(html: str) -> tuple[str, str]:
-    """``(title, text)``: visible text without navigation, headers, footers, scripts and cookie banners."""
-    soup = BeautifulSoup(html or "", "html.parser")
-    title = _clip(soup.title.get_text(" ") if soup.title else "", 200)
-    for tag in soup(list(_DROP_TAGS)):
-        tag.decompose()
-    for tag in soup.find_all(True):
-        attrs = tag.attrs if isinstance(tag.attrs, dict) else {}
-        blob = " ".join([str(attrs.get("id", "")), " ".join(attrs.get("class") or []) if isinstance(attrs.get("class"), list) else str(attrs.get("class", ""))])
-        if attrs.get("role") in ("navigation", "banner", "contentinfo") or _NOISE_ATTR.search(blob):
-            tag.decompose()
-    root = soup.find("main") or soup.find("article") or soup.body or soup
-    if len(root.get_text(" ", strip=True).split()) < MIN_WORDS:
-        root = soup.body or soup
-    lines: list[str] = []
-    for raw in root.get_text("\n").splitlines():
-        line = re.sub(r"\s+", " ", raw).strip()
-        if line and (not lines or lines[-1] != line):
-            lines.append(line)
-    return title, "\n".join(lines)
-
-
-def quality_gate(text: str) -> str:
-    """'' when the text is a usable document, otherwise the reason it is not (too short, blocked, mostly navigation)."""
-    words = text.split()
-    low = text[:800].lower()
-    if len(words) < 150 and any(p in low for p in _BLOCK_PHRASES):
-        return "blocked page"
-    if len(words) < MIN_WORDS:
-        return "too short"
-    lines = [l for l in text.splitlines() if l.strip()]
-    short = sum(1 for l in lines if len(l.split()) <= 3)
-    if lines and short / len(lines) > 0.85 and len(words) < 400:
-        return "mostly navigation"
-    return ""
-
-
-def _norm_line(line: str) -> str:
-    return re.sub(r"\s+", " ", fold(line)).strip()
-
-
-def _volatile(line: str) -> bool:
-    """Lines that change on every load (clocks, counters) and must not count as a change."""
-    n = _norm_line(line)
-    return bool(re.fullmatch(r"\d{1,2}:\d{2}(:\d{2})?( ?(am|pm))?", n)) or n.startswith(("hoy es ", "actualizado hace", "copyright", "©"))
-
-
-def normalised_hash(text: str) -> str:
-    lines = [_norm_line(l) for l in text.splitlines() if l.strip() and not _volatile(l)]
-    return _sha("\n".join(lines))
-
-
-def diff_lines(old: str, new: str) -> tuple[list[str], list[str]]:
-    """``(added, removed)`` lines, compared on normalised text, in document order."""
-    old_lines = [l for l in old.splitlines() if l.strip() and not _volatile(l)]
-    new_lines = [l for l in new.splitlines() if l.strip() and not _volatile(l)]
-    old_set, new_set = {_norm_line(l) for l in old_lines}, {_norm_line(l) for l in new_lines}
-    return ([l for l in new_lines if _norm_line(l) not in old_set], [l for l in old_lines if _norm_line(l) not in new_set])
-
-
-def diff_summary(added: list[str], removed: list[str]) -> str:
-    out = [f"+ {_clip(l, MAX_LINE_CHARS)}" for l in added[:MAX_ADDED_LINES]]
-    if len(added) > MAX_ADDED_LINES:
-        out.append(f"+ … {len(added) - MAX_ADDED_LINES} more lines")
-    if removed:
-        out.append(f"- {len(removed)} line(s) removed" + (f": {_clip(removed[0], 120)}" if removed else ""))
-    return "\n".join(out)
-
-
-# ----------------------------------------------------------------------------- feeds
-def _local(tag: str) -> str:
-    return tag.rsplit("}", 1)[-1].lower() if isinstance(tag, str) else ""
-
-
-def _child_text(el: ET.Element, *names: str) -> str:
-    for child in el:
-        if _local(child.tag) in names and (child.text or "").strip():
-            return child.text.strip()
-    return ""
-
-
-def parse_feed(xml_text: str) -> list[dict[str, str]]:
-    """RSS 2.0 / RSS 1.0 (RDF) / Atom items as ``{id, title, link, published, summary}``. Empty list when it is not a feed."""
-    if not xml_text or "<!ENTITY" in xml_text:  # never expand entities from remote XML
-        return []
-    try:
-        root = ET.fromstring(xml_text.lstrip("﻿").encode("utf-8"))
-    except (ET.ParseError, ValueError):
-        return []
-    items: list[dict[str, str]] = []
-    for el in root.iter():
-        name = _local(el.tag)
-        if name not in ("item", "entry"):
-            continue
-        link = ""
-        if name == "entry":
-            for child in el:
-                if _local(child.tag) == "link":
-                    href = child.attrib.get("href", "")
-                    if href and child.attrib.get("rel", "alternate") == "alternate":
-                        link = href
-                        break
-                    link = link or href
-        else:
-            link = _child_text(el, "link")
-        title = _child_text(el, "title")
-        guid = _child_text(el, "guid", "id") or link or title
-        summary = _child_text(el, "encoded", "content", "description", "summary")
-        summary = BeautifulSoup(summary, "html.parser").get_text(" ") if summary else ""
-        published = _child_text(el, "pubdate", "published", "updated", "date")
-        if guid or link:
-            items.append({"id": guid, "title": _clip(title, 200), "link": link, "published": published, "summary": _clip(summary, 400)})
-    return items
 
 
 # ----------------------------------------------------------------------------- materiality rules
@@ -179,16 +60,6 @@ _ACTION = re.compile(r"\b(pre-?order|preventa|reservas?|reservar|disponible|disp
 _LEAK = re.compile(r"\b(rumou?rs?|leaks?|leaked|filtraci[oó]n|filtrad[oa]s?|seg[uú]n fuentes|supuestamente|allegedly|reportedly|"
                    r"according to sources|could|podr[ií]a|podr[ií]an)\b", re.I)
 _ESTIMATE = re.compile(r"\b(estimates?|estimated|estimaci[oó]n|estimad[oa]|expected|se espera|se estima|anticipated)\b", re.I)
-_SECOND_LEVEL = {"co", "com", "org", "net", "gov", "ac"}
-
-
-def registrable_domain(host: str) -> str:
-    labels = [l for l in (host or "").lower().split(".") if l]
-    if len(labels) <= 2:
-        return ".".join(labels)
-    if len(labels[-1]) == 2 and labels[-2] in _SECOND_LEVEL:
-        return ".".join(labels[-3:])
-    return ".".join(labels[-2:])
 
 
 def _info_cfg(watcher: dict[str, Any]) -> dict[str, Any]:
@@ -238,7 +109,7 @@ def judge_rules(findings: list[InfoFinding], watcher: dict[str, Any]) -> list[In
             is_official = any(bare == d or bare.endswith("." + d) for d in official)
         else:
             is_official = classify_host(host)[2] == "official"
-        prepared.append({"f": f, "text": text, "folded": folded, "domain": registrable_domain(host), "official": is_official,
+        prepared.append({"f": f, "text": text, "folded": folded, "domain": registrable_domain(host) or host, "official": is_official,
                          "facts": _facts(text)})
 
     for p in prepared:
@@ -393,52 +264,43 @@ class InfoSentry:
         fr = self._fetch(row, update)
         if fr is None:
             return []
+        prev = {"hash": row.get("last_hash") or "", "text": row.get("last_text") or ""}
+        found, state = watch.check_page(fr, prev)       # a blocked or low-quality page never replaces the stored baseline
+        if state["error"]:
+            update["last_error"] = state["error"]
+            return []
         if fr.not_modified:
             return []
-        title, text = readable_text(fr.text)
-        problem = quality_gate(text)
-        if problem:
-            update["last_error"] = f"low quality page ({problem}); no comparison made"
-            return []
-        new_hash = normalised_hash(text)
-        stored = text[:MAX_STORED_TEXT]
-        old_hash, old_text = str(row.get("last_hash") or ""), str(row.get("last_text") or "")
-        update.update(last_hash=new_hash, last_text=stored)
-        if not old_hash or new_hash == old_hash:
-            return []  # baseline, or nothing changed
-        added, removed = diff_lines(old_text, stored)
-        if not added and not removed:
-            return []  # same lines in another order
-        url = fr.final_url or fr.url or str(row.get("value", ""))
-        return [InfoFinding(url=url, title=title or str(row.get("label") or url), snippet=_clip(" ".join(added[:3]) or "content removed", 300),
-                            kind="page_change", content_hash=_sha(url + "\n" + "\n".join(_norm_line(l) for l in added or removed))[:32],
-                            diff=diff_summary(added, removed), source_level=int(row.get("source_level") or 3))]
+        update.update(last_hash=state["hash"], last_text=state["text"])
+        if found is None:
+            return []                                   # baseline, nothing changed, or the same lines in another order
+        url = found["url"] or str(row.get("value", ""))
+        return [InfoFinding(url=url, title=found["title"] if found["title"] != found["url"] else str(row.get("label") or url),
+                            snippet=found["snippet"], kind="page_change", content_hash=found["content_hash"], diff=found["summary"],
+                            source_level=int(row.get("source_level") or 3))]
 
     # -- feed
     def _feed(self, row: dict[str, Any], update: dict[str, Any]) -> list[InfoFinding]:
         fr = self._fetch(row, update)
         if fr is None or fr.not_modified:
             return []
-        items = parse_feed(fr.text)
-        if not items:
+        feed = parse_feed(fr.text, fr.final_url or fr.url)
+        if not feed or not feed["items"]:
             update["last_error"] = "not a feed or empty"
             return []
         seen = [l for l in str(row.get("last_text") or "").splitlines() if l]
-        seen_set = set(seen)
-        keys = [it["id"] or it["link"] for it in items]
-        merged = (keys + [k for k in seen if k not in set(keys)])[:MAX_SEEN]
+        baseline = not row.get("last_hash")            # the first check is the baseline
+        items, merged = watch.check_feed(feed, seen, baseline)
+        keys = [_item_key(it) for it in feed["items"]]
         update.update(last_text="\n".join(merged), last_hash="feed:" + _sha("\n".join(keys[:50]))[:16])
-        if not row.get("last_hash"):
-            return []  # first check is the baseline
         level = int(row.get("source_level") or 3)
         out = []
-        for it, key in zip(items, keys):
-            if key in seen_set:
-                continue
-            url = it["link"] or str(row.get("value", ""))
-            out.append(InfoFinding(url=url, title=it["title"] or url, snippet=it["summary"], kind="feed_item",
-                                   published=it["published"] or None, content_hash=_sha(f"{row.get('value', '')}\n{key}")[:32], source_level=level))
-        return out[:MAX_FEED_FINDINGS]
+        for it in items:
+            url = it.get("link") or str(row.get("value", ""))
+            out.append(InfoFinding(url=url, title=it.get("title") or url, snippet=_clip(it.get("summary") or "", 400), kind="feed_item",
+                                   published=it.get("published") or it.get("updated") or None, content_hash=_sha(f"{row.get('value', '')}\n{it['key']}")[:32],
+                                   source_level=level))
+        return out
 
     # -- search
     def _search(self, row: dict[str, Any], watcher: dict[str, Any], update: dict[str, Any]) -> list[InfoFinding]:
@@ -476,4 +338,4 @@ class InfoSentry:
         return out[:MAX_FIRST_SEARCH_FINDINGS] if first else out
 
 
-__all__ = ["InfoSentry", "judge", "judge_rules", "readable_text", "quality_gate", "parse_feed", "diff_lines", "diff_summary"]
+__all__ = ["InfoSentry", "judge", "judge_rules"]
