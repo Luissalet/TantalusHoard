@@ -87,6 +87,11 @@ def no_family_hub(monkeypatch):
     """No test talks to a real hub: the notification centre, the mail gateway and the reference graph answer "away" unless a test fakes them."""
     from tantalus_hoard.hoard_link import fam_mail, fam_notify, fam_refs
 
+    monkeypatch.setattr(fam_mail, "_sibling_candidates", lambda: [])
+    monkeypatch.setattr(fam_mail, "COMMON_FAUSTUS_PATHS", ())
+    for key in fam_mail.FAUSTUS_ENV:
+        monkeypatch.delenv(key, raising=False)
+
     monkeypatch.setattr(fam_notify, "hub_available", lambda timeout=1.0: False)
     monkeypatch.setattr(fam_notify, "notify", lambda *a, **k: {"ok": False, "error": "hub unreachable"})
     monkeypatch.setattr(fam_mail, "available", lambda timeout=1.0: False)
