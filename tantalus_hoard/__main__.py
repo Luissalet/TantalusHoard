@@ -1,44 +1,19 @@
-"""`python -m tantalus_hoard` — run the app with uvicorn on 127.0.0.1."""
+"""`python -m tantalus_hoard` — run the app with uvicorn on 127.0.0.1 (the shared ``hoard_link.service.run_main``)."""
 
 from __future__ import annotations
 
-import logging
+import os
 
-import uvicorn
-
-from .config import Config
-from .main import create_app
-from .port import can_listen, find_available_port
+from .hoard_link.service import run_main
 
 
-def _already_running(port: int) -> bool:
-    try:
-        import httpx
-
-        response = httpx.get(f"http://127.0.0.1:{port}/api/health", timeout=3, trust_env=False)
-        return response.status_code == 200 and response.json().get("service") == "tantalus-hoard"
-    except Exception:  # noqa: BLE001
-        return False
-
-
-def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
-    logging.getLogger("httpx").setLevel(logging.WARNING)  # one line per request would drown the log
-    config = Config.from_env()
-    if config.port_strict and not can_listen(config.port):
-        # Decide before touching the data dir: a second instance must never
-        # rotate anything under the feet of the one that is serving.
-        if _already_running(config.port):
-            print(f"Tantalus's Hoard is already running on http://127.0.0.1:{config.port}", flush=True)
-            raise SystemExit(0)
-        print(f"Port {config.port} is taken by another program (PORT_STRICT=1).", flush=True)
-        raise SystemExit(1)
-    port = config.port if config.port_strict else find_available_port(config.port)
-    config.port = port
-    app = create_app(config)
-    print(f"Tantalus's Hoard listening on http://127.0.0.1:{port}", flush=True)
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+def main(argv=None) -> int:
+    if not os.environ.get("TANTALUS_PORT") and os.environ.get("PORT"):
+        os.environ["TANTALUS_PORT"] = os.environ["PORT"]  # the generic PORT variable stays a fallback
+    return run_main(service="tantalus-hoard", package="tantalus_hoard", default_port=5197, app_factory="tantalus_hoard.main:create_app",
+                    data_dir_env="TANTALUS_DATA_DIR", port_env="TANTALUS_PORT", open_browser_default=False, title="Tantalus's Hoard",
+                    argv=argv)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
