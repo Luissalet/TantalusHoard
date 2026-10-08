@@ -252,7 +252,18 @@ class Notifier:
             elif channel in own:
                 results.append(own[channel])
             elif routed is not None and channel in PUSH_CHANNELS:
-                results.append({"channel": channel, "ok": routed["ok"], "error": self._hub_error(routed), "via": "hub", "ts": self.clock()})
+                if not routed["ok"] or routed.get("held"):
+                    results.append({"channel": channel, "ok": routed["ok"], "error": self._hub_error(routed), "via": "hub", "ts": self.clock()})
+                else:
+                    # Hub acceptance is not delivery through every requested channel.
+                    hub_channel = "windows" if channel == "toast" else channel
+                    delivered = next((r for r in (routed.get("hub") or {}).get("channels", [])
+                                      if r.get("channel") == hub_channel), None)
+                    if delivered is None:
+                        results.append({"channel": channel, "ok": False, "error": "not routed by the hub", "skipped": True, "via": "hub"})
+                    else:
+                        results.append({"channel": channel, "ok": bool(delivered.get("ok")), "error": str(delivered.get("error") or ""),
+                                        "via": "hub", "ts": self.clock()})
             else:
                 results.append(self._checked(channel, event))
         return results

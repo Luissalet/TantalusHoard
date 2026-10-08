@@ -32,7 +32,7 @@ class FakeHubNotify:
 
     def __init__(self, up=True, answer=None):
         self.up, self.calls = up, []
-        self.answer = answer if answer is not None else {"ok": True, "id": 7, "held": ""}
+        self.answer = answer if answer is not None else {"ok": True, "id": 7, "held": "", "channels": [{"channel": "windows", "ok": True}]}
 
     def hub_available(self, timeout=1.0):
         return self.up
@@ -61,7 +61,9 @@ def test_auto_sends_one_hub_notification_instead_of_the_push_channels():
     assert call["priority"] == "high" and call["group"] == "restock" and call["dedupe_key"] == "k-etb"
     assert call["url"] == "https://www.game.es/etb" and call["title"].startswith("Restock:") and "49,99" in call["body"]
     by = {r["channel"]: r for r in results}
-    assert [by[c]["via"] for c in ("toast", "ntfy", "telegram", "email")] == ["hub"] * 4 and all(by[c]["ok"] for c in ("toast", "ntfy"))
+    assert [by[c]["via"] for c in ("toast", "ntfy", "telegram", "email")] == ["hub"] * 4
+    assert by["toast"]["ok"]
+    assert all(not by[c]["ok"] and by[c]["skipped"] for c in ("ntfy", "telegram", "email"))
     assert "via" not in by["hub"]                                        # the bus event is a separate channel, still its own
 
 

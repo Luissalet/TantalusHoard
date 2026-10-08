@@ -33,6 +33,27 @@ def make(cfg=None, sett=None, **kw):
     return Notifier(cfg or Cfg(), settings(**{**NO_FAUSTUS, **(sett or {})}), clock=lambda: 42.0, platform=kw.pop("platform", "win32"), **kw)
 
 
+def test_hub_delivery_records_only_channels_actually_sent():
+    hub = SimpleNamespace(hub_available=lambda: True, notify=lambda *a, **kw: {
+        "ok": True, "channels": [{"channel": "windows", "ok": True}], "delivered": ["windows"]})
+    results = make(hub_notify=hub).send(EVENT, ["toast", "email", "telegram", "ntfy"])
+    assert results[0]["channel"] == "toast" and results[0]["ok"]
+    assert all(not r["ok"] and r["skipped"] for r in results[1:])
+
+
+def test_hub_email_failure_is_reported_even_when_hub_accepted_the_alert():
+    hub = SimpleNamespace(hub_available=lambda: True, notify=lambda *a, **kw: {
+        "ok": True, "channels": [{"channel": "email", "ok": False, "error": "SMTP unavailable"}], "delivered": []})
+    result = make(hub_notify=hub).send(EVENT, ["email"])[0]
+    assert not result["ok"] and result["error"] == "SMTP unavailable"
+
+
+def test_hub_hold_preserves_quiet_hours_without_sending_own_email():
+    hub = SimpleNamespace(hub_available=lambda: True, notify=lambda *a, **kw: {"ok": True, "held": "quiet", "channels": []})
+    result = make(hub_notify=hub).send(EVENT, ["email"])[0]
+    assert result["ok"] and result["error"] == "held by the hub (quiet)"
+
+
 # ------------------------------------------------------------------ labels
 def test_every_event_type_has_es_and_en_labels():
     for t in model.EVENT_TYPES:
