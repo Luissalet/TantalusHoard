@@ -172,6 +172,10 @@ def score_rules(listing: RawListing, pack: dict[str, Any], settings: Optional[di
         reject = f"Contiene una palabra excluida: «{excluded[0]}»"
     include_any = _as_terms(rules.get("include_any"))
     include_all = _as_terms(rules.get("include_all"))
+    off_topic = rules.get("off_topic_title_regex")
+    title_terms = [t for t in include_any if t not in _as_terms(rules.get("off_topic_ambiguous_terms"))]
+    if not reject and off_topic and compile_pattern(off_topic).search(title_norm) and not _find_terms(title_norm, title_terms):
+        reject = str(rules.get("off_topic_title_reason") or "El título corresponde a otro tipo de producto")
     # include_scope "title_lead": the topic word must be in the title or the opening of the description, so seller
     # boilerplate at the end ("también vendo libros, se hacen lotes") does not make a video game a book lot.
     scope_text = normalized if rules.get("include_scope") != "title_lead" else normalize_text(

@@ -107,6 +107,10 @@ BOOKS_BULK: dict[str, Any] = {
         "include_any": ["libro", "libros", "biblioteca", "novela", "novelas", "enciclopedia", "enciclopedias", "tomo", "tomos",
                         "comic", "comics", "manga", "mangas", "coleccion de libros", "saga", "edicion de bolsillo"],
         "include_scope": "title_lead",
+        # A book mentioned among toys or in a clothing seller's description is incidental.
+        "off_topic_title_regex": r"\b(ropa|prendas?|camisetas?|pantalones?|vestidos?|bodis|bodies|babis?|calzado|juguetes?|peluches?|sonajeros?|parque infantil|mangas? (larga|corta)s?)\b",
+        "off_topic_ambiguous_terms": ["manga", "mangas"],
+        "off_topic_title_reason": "El anuncio es de ropa o juguetes, no de un lote de libros",
         "require_bulk": True,
         # seller boilerplate that is not about this listing ("se hacen lotes con otros productos de mi perfil")
         "boilerplate_regex": r"(hago|hacemos|se hacen|se pueden hacer|acepto|haria|hare|puedo hacer)\s+(un\s+)?(lotes?|packs?)[^.!\n]*"

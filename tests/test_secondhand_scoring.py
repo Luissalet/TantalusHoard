@@ -454,3 +454,26 @@ def test_books_pack_ignores_seller_boilerplate_and_textbooks():
     lot = RawListing(source="wallapop", url="u7", title="Lote 13 libros por 9€", price=9, location_text="Móstoles",
                      description="13 libros, los títulos en las fotos")
     assert score_listing(lot, pack, cfg).score >= pack["alert_min_score"]
+
+
+@pytest.mark.parametrize("title,description", [
+    ("Lote Juguetes Bebé Peluche y Sonajeros", "Conjunto de juguetes para bebés. Libro de tela con texturas y sonidos."),
+    ("Parque infantil y juguetes para bebé", "Lote de juguetes para bebé. Peluche de conejo. Libro de tela con animales."),
+    ("Lote Ropa verano niña 18-24 meses", "Ropa de bebé y libros, todo en lote, regalo por mudanza."),
+    ("Lote camisetas y bodis niña 12-18 meses (Oferton", "11 camisetas de niña de manga larga de 12 a 18 meses, 14 euros todo."),
+    ("Lote de camisetas de manga larga", "Conjunto de ropa para bebés, regalo por mudanza."),
+])
+def test_books_reject_other_products_with_incidental_book_mentions(title, description):
+    class Model:
+        def json(self, *args, **kwargs):
+            raise AssertionError("A hard rejection must not reach the model")
+
+    result = score_listing(listing(title, price=0, description=description), BOOKS, ORIGIN, llm=Model())
+    assert not result.relevant and result.score == 0
+    assert "hard_reject" in keys(result)
+
+
+def test_books_still_accept_childrens_books_and_named_novels():
+    assert books("Lote de libros infantiles para bebés", "5 €", "Cuatro libros de cuentos").relevant
+    assert books("Harry Potter", "5 €", "Colección de siete libros, todos juntos").relevant
+    assert books("Lote manga Dragon Ball", "5 €", "Colección de varios tomos").relevant
