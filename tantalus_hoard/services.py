@@ -268,7 +268,7 @@ class Services:
     def dashboard(self) -> dict[str, Any]:
         now = self.clock()
         last_visit = float(self.db.get_setting("dashboard.last_visit_ts", "0") or 0)
-        news = self.store.events(statuses=["confirmed"], unseen=True, limit=80)
+        news = self.store.events(statuses=["confirmed"], unseen=True, limit=80, active_watchers_only=True, current_offers_only=True)
         watchers = []
         targets = self.store.targets()
         by_watcher: dict[str, list[dict[str, Any]]] = {}

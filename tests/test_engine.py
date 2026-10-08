@@ -258,6 +258,52 @@ def test_dashboard_news_and_visit(svc):
     assert svc.dashboard()["news_count"] == 0
 
 
+def test_confirmed_dashboard_alerts_follow_watcher_enabled_state(svc):
+    books = svc.store.create_watcher(name="Libros", mode="secondhand", config={})
+    other = svc.store.create_watcher(name="Reposiciones", mode="availability", config={})
+    book_event = svc.store.add_event({"watcher_id": books["id"], "type": "NEW_LISTING", "title": "Lote de libros"})
+    other_event = svc.store.add_event({"watcher_id": other["id"], "type": "RESTOCK"})
+    mail_event = svc.store.add_event({"type": "MAIL_DEAL"})
+    svc.store.update_watcher(books["id"], enabled=False)
+
+    dashboard = svc.dashboard()
+    assert {e["id"] for e in dashboard["news"]} == {other_event["id"], mail_event["id"]}
+    assert dashboard["news_count"] == 2
+    assert next(w for w in dashboard["watchers"] if w["id"] == books["id"])["unseen"] == 0
+    assert svc.store.event(book_event["id"])["status"] == "confirmed"
+    assert svc.store.events(watcher_id=books["id"])[0]["id"] == book_event["id"]
+
+    svc.store.update_watcher(books["id"], enabled=True)
+    assert svc.dashboard()["news_count"] == 3
+    assert any(e["id"] == book_event["id"] for e in svc.dashboard()["news"])
+
+
+def test_paused_watcher_alerts_do_not_fill_the_dashboard_limit(svc):
+    paused = svc.store.create_watcher(name="Libros", mode="secondhand", config={}, enabled=False)
+    active = svc.store.create_watcher(name="Reposiciones", mode="availability", config={})
+    wanted = svc.store.add_event({"watcher_id": active["id"], "type": "RESTOCK", "detected_at": T0})
+    for i in range(85):
+        svc.store.add_event({"watcher_id": paused["id"], "type": "NEW_LISTING", "detected_at": T0 + i + 1})
+    assert [e["id"] for e in svc.dashboard()["news"]] == [wanted["id"]]
+
+
+def test_dashboard_hides_restock_after_a_later_sold_out_check_and_keeps_history(svc):
+    w = make_watcher(svc)
+    t = svc.store.create_target(w["id"], URL)
+    stock = svc.store.add_event({"watcher_id": w["id"], "target_id": t["id"], "type": "RESTOCK", "detected_at": T0})
+    news = svc.store.add_event({"watcher_id": w["id"], "target_id": t["id"], "type": "INFO_CHANGE", "detected_at": T0})
+    svc.store.update_target(t["id"], last_state="IN_STOCK", last_check_ts=T0 + 1)
+    assert svc.dashboard()["news_count"] == 2
+    svc.store.update_target(t["id"], last_state="OUT_OF_STOCK", last_check_ts=T0 + 2)
+    assert [e["id"] for e in svc.dashboard()["news"]] == [news["id"]]
+    assert svc.store.event(stock["id"])["status"] == "confirmed"
+    # A stale reading from before the alert, or a failed check, cannot disprove it.
+    svc.store.update_target(t["id"], last_state="OUT_OF_STOCK", last_check_ts=T0 - 1)
+    assert svc.dashboard()["news_count"] == 2
+    svc.store.update_target(t["id"], last_state="UNKNOWN", last_check_ts=T0 + 3)
+    assert svc.dashboard()["news_count"] == 2
+
+
 def test_config_roundtrip_and_presets(svc):
     created = tool(svc, "presets_install")["created"]
     assert len(created) == 7

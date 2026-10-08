@@ -264,8 +264,19 @@ class Store:
 
     def events(self, *, watcher_id: Optional[str] = None, target_id: Optional[str] = None, types: Optional[list[str]] = None,
                statuses: Optional[list[str]] = None, since: Optional[float] = None, unseen: Optional[bool] = None,
-               limit: int = 50, before: Optional[float] = None) -> list[dict[str, Any]]:
+               limit: int = 50, before: Optional[float] = None, active_watchers_only: bool = False,
+               current_offers_only: bool = False) -> list[dict[str, Any]]:
         sql, params = "SELECT * FROM events WHERE 1=1", []
+        if active_watchers_only:
+            # Filter before LIMIT so paused watchers cannot crowd out active alerts.
+            # Mail deals may have no watcher and must remain visible.
+            sql += " AND (watcher_id = '' OR EXISTS (SELECT 1 FROM watchers w WHERE w.id = events.watcher_id AND w.enabled = 1))"
+        if current_offers_only:
+            # Keep historical events, but remove expired buying opportunities from the live panel.
+            # Unknown / blocked checks do not prove an offer has ended; unrelated news stays visible.
+            sql += (" AND NOT (type IN ('RESTOCK','LOCAL_RESTOCK','PREORDER_OPEN','SALE_OPEN','PRICE_DROP','PRICE_THRESHOLD_CROSSED')"
+                    " AND EXISTS (SELECT 1 FROM targets t WHERE t.id = events.target_id AND t.last_check_ts >= events.detected_at"
+                    " AND t.last_state IN ('OUT_OF_STOCK','UNAVAILABLE_REGION','MARKETPLACE_ONLY','RESTOCK_SCHEDULED','COMING_SOON')))")
         for col, value in (("watcher_id", watcher_id), ("target_id", target_id)):
             if value:
                 sql += f" AND {col} = ?"
