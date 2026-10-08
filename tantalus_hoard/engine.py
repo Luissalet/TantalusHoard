@@ -353,7 +353,9 @@ class Engine:
                                                    "confidence": result.get("confidence"), "at": self.clock()}}
         if not still:
             return self.store.update_event(event_id, status="dismissed", data={**data, "dismissed_reason": "no se confirmó al revalidar"})
-        confidence = min(100, max(int(event["confidence"]), int(result.get("confidence") or 0)) + 15)
+        # The check already includes the corroboration bonus. Use its current evidence;
+        # an old high score must not mask a weaker or contradictory second reading.
+        confidence = int(result.get("confidence") or 0)
         status = "confirmed" if confidence >= require else "logged"
         event = self.store.update_event(event_id, status=status, confidence=confidence, data=data)
         if status == "confirmed":

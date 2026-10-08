@@ -318,7 +318,33 @@ def test_structured_data_and_page_can_disagree_and_the_conflict_is_reported():
     payload = {"@type": "Product", "name": "Z", "offers": {"@type": "Offer", "price": 5, "priceCurrency": "EUR", "availability": "InStock"}}
     ex = extract(fr(product('<button disabled>Agotado</button>', ld(payload))))
     offer = ex.primary
-    assert offer.availability == IN_STOCK and "conflict" in offer.extra and any("sold-out control" in n for n in ex.notes)
+    assert offer.availability == OUT_OF_STOCK and "conflict" in offer.extra and any("sold-out control" in n for n in ex.notes)
+    assert offer.extra["structured_availability"] == IN_STOCK
+    assert offer.buy_button is False and any("Agotado" in e for e in offer.evidence)
+
+
+@pytest.mark.parametrize("structured_state", ["InStock", "PreOrder"])
+def test_unavailable_purchase_controls_override_stale_structured_stock(structured_state):
+    payload = {"@type": "Product", "name": "Switch MikroTik CRS812", "offers": {
+        "@type": "Offer", "price": 1095.46, "priceCurrency": "EUR", "availability": structured_state}}
+    body = '<a class="btn">Avísame cuando haya stock</a><button disabled>NO DISPONIBLE</button>'
+    offer = extract(fr(product(body, ld(payload), title=payload["name"]))).primary
+    assert offer.availability == OUT_OF_STOCK and offer.buy_button is False
+    assert offer.price == 1095.46 and offer.extra.get("conflict")
+
+
+def test_hidden_unavailable_controls_do_not_override_real_stock():
+    payload = {"@type": "Product", "name": "Switch", "offers": {"@type": "Offer", "availability": "InStock"}}
+    offer = extract(fr(product('<button hidden disabled>NO DISPONIBLE</button><button>Añadir al carrito</button>', ld(payload)))).primary
+    assert offer.availability == IN_STOCK and offer.buy_button is True
+
+
+def test_tecnologiamodular_real_page_overrides_instock_seo_metadata():
+    url = "https://www.tecnologiamodular.es/comprar-ordenador-completo-barato-switch-mikrotik-crs812-ddq-2x400g-2x200g-8x50g"
+    offer = extract(fr(page("tecnologiamodular_crs812_outofstock"), url)).primary
+    assert offer.availability == OUT_OF_STOCK and offer.buy_button is False
+    assert offer.extra["structured_availability"] == IN_STOCK
+    assert offer.price == 1095.46 and "NO DISPONIBLE" in offer.evidence
 
 
 def test_evidence_snippets_are_short():

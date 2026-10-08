@@ -272,8 +272,16 @@ def _enrich(offer: Offer, scan: phrases.PhraseScan, meta: meta_mod.PageMeta, ex:
     if offer.buy_button is None and scan.buy_button is not None:
         offer.buy_button = scan.buy_button
     if scan.buy_button is not None and offer.method.startswith(("jsonld", "microdata", "opengraph")):
-        if offer.availability in (IN_STOCK,) and scan.state == OUT_OF_STOCK:
+        if offer.availability in (IN_STOCK, PREORDER) and scan.state in (OUT_OF_STOCK, RESTOCK_SCHEDULED, COMING_SOON) and scan.buy_button is False:
             offer.extra["conflict"] = "structured data says in stock but the page shows a sold-out control"
+            offer.extra["structured_availability"] = offer.availability
+            # The visible buying controls decide whether the person can actually buy it.
+            # Stale SEO data must not put an unavailable product in the dashboard's stock panel.
+            offer.availability = scan.state
+            offer.method += "+phrases"
+            offer.evidence.extend(scan.evidence[:4])
+            if "phrases" not in ex.methods:
+                ex.methods.append("phrases")
         elif offer.availability == OUT_OF_STOCK and scan.state in (IN_STOCK, PREORDER) and scan.buy_button:
             offer.extra["conflict"] = "structured data says sold out but the page has an active buy control"
         if offer.extra.get("conflict"):

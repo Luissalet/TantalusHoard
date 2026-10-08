@@ -110,6 +110,39 @@ def test_revalidation_that_does_not_hold_dismisses(svc):
     assert not svc.notifier.sent
 
 
+def test_revalidation_uses_latest_confidence_without_counting_confirmation_twice(svc, monkeypatch):
+    w = make_watcher(svc, revalidate_seconds=60)
+    t = svc.store.create_target(w["id"], URL)
+    for latest_score, expected_status in ((80, "confirmed"), (60, "logged")):
+        event = svc.store.add_event({"watcher_id": w["id"], "target_id": t["id"], "type": "RESTOCK",
+                                     "status": "pending", "new_state": "IN_STOCK", "confidence": 95})
+        monkeypatch.setattr(svc.engine, "check_target", lambda *a, **kw: {
+            "ok": True, "state": "IN_STOCK", "price": 100, "confidence": latest_score})
+        result = svc.engine.revalidate(event["id"])
+        assert result["confidence"] == latest_score and result["status"] == expected_status
+
+
+def test_repeated_conflicting_stock_does_not_gain_corroboration_points():
+    from tantalus_hoard.model import Offer
+    from tantalus_hoard.rules import score_confidence
+
+    offer = Offer(availability="IN_STOCK", price=100, method="jsonld", buy_button=False,
+                  extra={"conflict": "The product cannot be bought"})
+    result = score_confidence(offer, source_level=1, tier="http", target_store_ids=[], corroborated=True)
+    assert result.score == 65 and not any(f["key"] == "second_source" for f in result.factors)
+
+
+def test_tecnologiamodular_unavailable_page_never_raises_a_restock(svc):
+    real_page = page("tecnologiamodular_crs812_outofstock.html")
+    svc.engine.fetcher = ScriptedFetcher({URL: [real_page]})
+    w = make_watcher(svc, revalidate_seconds=60)
+    t = svc.store.create_target(w["id"], URL)
+    assert svc.engine.check_target(t["id"])["state"] == "OUT_OF_STOCK"
+    assert svc.engine.check_target(t["id"])["state"] == "OUT_OF_STOCK"
+    assert not svc.store.events(watcher_id=w["id"], types=["RESTOCK"])
+    assert not svc.notifier.sent
+
+
 def test_marketplace_seller_is_not_a_restock_under_retail_only(svc):
     html = page("game_product_instock.html").replace('"@type": "Offer"', '"@type": "Offer", "seller": {"@type": "Organization", "name": "Tienda Pepe"}')
     svc.engine.fetcher = ScriptedFetcher({URL: [page("game_product_outofstock.html"), html]})

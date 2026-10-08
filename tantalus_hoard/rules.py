@@ -84,7 +84,7 @@ def score_confidence(offer: Offer, *, source_level: int, tier: str, target_store
     ean_match = offer.extra.get("ean_match")
     if offer.price is not None and sku_match is not False and ean_match is not False and price_ok is not False:
         add("coherent", 10, "Precio y SKU coherentes")
-    if corroborated:
+    if corroborated and not (offer.extra.get("conflict") or offer.extra.get("mixed_signals")):
         add("second_source", 15, "Confirmado por una segunda comprobación")
     if tier == "cache" or method == "snippet":
         add("snippet_only", -25, "Solo un fragmento de buscador o caché")
