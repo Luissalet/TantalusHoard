@@ -33,6 +33,7 @@ log = logging.getLogger("tantalus.engine")
 STATE_RANK = {IN_STOCK: 7, LOCAL_PICKUP: 6, PREORDER: 5, RESTOCK_SCHEDULED: 4, COMING_SOON: 4, MARKETPLACE_ONLY: 3, OUT_OF_STOCK: 2,
               UNAVAILABLE_REGION: 1, UNKNOWN: 0}
 NEEDS_HUMAN_RETRY_MIN = 180
+BUSY_RETRY_S = 180        # another app holds the site's browser lane: look again soon, it is not the page's fault
 MAX_BACKOFF_MIN = 6 * 60
 
 
@@ -140,6 +141,12 @@ class Engine:
         fr, ex = self.fetch_target(target, watcher)
         extra = dict(target.get("extra") or {})
         fail_count = int(target.get("fail_count") or 0)
+
+        # ---------------------------------------------------------------- the site's browser lane is taken by another app
+        if fr.error_kind == "busy" and not fr.ok:
+            # Nothing was asked of the site: no observation, no failure, no block. Say who has it and retry soon.
+            self.store.update_target(target["id"], last_error=fr.error[:300], next_check_ts=now + BUSY_RETRY_S)
+            return {"target_id": target["id"], "ok": False, "blocked": False, "busy": True, "error": fr.error, "events": []}
 
         # ---------------------------------------------------------------- could not read the page
         if not fr.ok or ex.page_kind == "blocked":

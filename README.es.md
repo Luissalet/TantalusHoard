@@ -138,6 +138,15 @@ Además de los avisos y el correo (arriba):
 - **Ideas de regalo.** `watcher_add {name|title|text, url?, budget|max_price?, source_ref?, budget_category?}` crea un vigilante de disponibilidad a partir de un nombre: palabras de producto del nombre, una página de producto opcional, un umbral de precio y consultas de descubrimiento. El mismo `source_ref` devuelve el mismo vigilante y el registro queda enlazado con la idea en el grafo de referencias del hub.
 - **Eventos.** `tantalus.watcher.bought`, `tantalus.watcher.added`, además de los ya existentes `tantalus.alert` y `tantalus.event.*`.
 
+## Carriles de navegador (una app a la vez por web)
+
+Dos apps de la familia no deben automatizar la misma tienda a la vez. Antes de abrir un navegador para una página (el escalón **browser** sin ventana, el escalón **window** visible, una sesión de navegador como el acceso o la búsqueda de Facebook y la ventana «ábrela para mí») Tantalus toma el carril del Hub del dominio raíz de la página (`example.co.uk`, así todos los subdominios de una tienda comparten carril) y lo devuelve en cuanto termina la lectura. Las lecturas HTTP normales no toman carril.
+
+- **Ocupado.** Si otra app tiene el dominio, Tantalus espera hasta `TANTALUS_LANE_WAIT_S` (60 s; 15 s para la ventana que se abre para una persona). Si sigue ocupado, la comprobación termina con `error_kind: busy` y el mensaje *ocupado por X desde las HH:MM:SS: dominio ya se está leyendo con un navegador (carril del Hub)*; para una inspección suelta la API contesta 409 `busy`. Un ocupado no es un fallo: no añade observación, no cuenta en la racha de fallos del objetivo y se reintenta en unos 3 minutos.
+- **Hub ausente.** Sin Hub, con un Hub antiguo o que no responde: la lectura sigue sin carril (un aviso en el log). Tantalus nunca arranca el Hub por esto. Si Tantalus se cae, pierde el carril cuando vence su TTL (mientras dura una lectura se renueva en segundo plano).
+- **Apagado.** `TANTALUS_LANES=0` desactiva los carriles; también están apagados con un transporte de pruebas o con `use_hub` en falso.
+- Los carriles en uso (dominio, quién, desde cuándo, caduca) salen en el panel *Carriles de navegador* del Hub; ver sus docs para `hub_lane_status`.
+
 ## Arrancar
 
 ```sh

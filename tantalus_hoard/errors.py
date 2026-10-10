@@ -19,6 +19,7 @@ class TantalusError(AppError):
         "fetch_failed": 502,
         "blocked": 409,
         "needs_human": 409,
+        "busy": 409,
         "rate_limited": 429,
         "unsafe_url": 400,
         "robots_disallowed": 409,

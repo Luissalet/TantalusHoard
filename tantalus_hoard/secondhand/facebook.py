@@ -277,6 +277,14 @@ class FacebookSource:
         self.debug_dir = debug_dir
 
     # ---- session
+    def _session(self) -> Any:
+        """The fetcher's browser session, told which site it is for (the Hub's browser lane is per site); a fetcher whose
+        ``browser_session`` takes no ``url`` is used as it always was."""
+        try:
+            return self.fetcher.browser_session(url=FACEBOOK_URL)
+        except TypeError:
+            return self.fetcher.browser_session()
+
     @staticmethod
     def logged_in(context: Any) -> bool:
         try:
@@ -288,7 +296,7 @@ class FacebookSource:
     def ensure_ready(self) -> tuple[bool, str]:
         """``(ready, message)``. Not ready explains what the user has to do (log in by hand once)."""
         try:
-            with self.fetcher.browser_session() as context:
+            with self._session() as context:
                 if self.logged_in(context):
                     return True, ""
         except TantalusError as exc:
@@ -307,7 +315,7 @@ class FacebookSource:
         if not query:
             return [], "facebook: empty query"
         try:
-            with self.fetcher.browser_session() as context:
+            with self._session() as context:
                 if not self.logged_in(context):
                     return [], "needs_human: no hay sesión de Facebook iniciada (inicia sesión a mano una vez)"
                 results, errors = self._search_all(context, query, location_text, max_price, min_price, order_by)

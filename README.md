@@ -124,6 +124,15 @@ Besides notifications and mail (above):
 - **Gift ideas.** `watcher_add {name|title|text, url?, budget|max_price?, source_ref?, budget_category?}` creates an availability watcher from a name: product words from the name, an optional product page, a price threshold, discovery queries. The same `source_ref` returns the same watcher, and the record is linked to the idea in the hub's reference graph.
 - **Events.** `tantalus.watcher.bought`, `tantalus.watcher.added`, plus the existing `tantalus.alert` and `tantalus.event.*`.
 
+## Browser lanes (one app at a time per site)
+
+Two family apps must not automate the same shop at once. Before Tantalus opens a browser for a page (the headless **browser** tier, the visible **window** tier, a browser session such as the Facebook login or search, and the "open for me" window) it takes the Hub's lane for the page's registrable domain (`example.co.uk`, so every sub-domain of a shop shares one lane) and gives it back as soon as the read ends. Plain HTTP reads take no lane.
+
+- **Busy.** If another app holds the domain, Tantalus waits up to `TANTALUS_LANE_WAIT_S` (60 s; 15 s for the window opened for a person). If it is still busy the check ends with `error_kind: busy` and the message *ocupado por X desde las HH:MM:SS: dominio ya se está leyendo con un navegador (carril del Hub)*; the API answers 409 `busy` for one-off inspections. A busy check is not a failure: it adds no observation, does not count towards the target's failure streak and is tried again in about 3 minutes.
+- **Hub away.** No Hub, an old Hub or one that does not answer: the read goes ahead without a lane (one warning in the log). Tantalus never starts the Hub for this. A crashed Tantalus loses its lane when the lane's TTL runs out (the lane is renewed in the background while a read lasts).
+- **Off.** `TANTALUS_LANES=0` switches lanes off. They are also off whenever the fetcher uses a test transport or `use_hub` is false.
+- The lanes in use (domain, holder, since, expires) are listed in the Hub's *Browser lanes* panel; see the Hub docs for `hub_lane_status`.
+
 ## Run
 
 ```sh
@@ -134,7 +143,7 @@ venv\Scripts\python -m tantalus_hoard        # http://127.0.0.1:5197
 
 The built UI is committed. `npm install && npm run build` rebuilds it after client changes. Hoard Hub starts the app from `faustus-plugin.json`. The headless browser uses Edge through Playwright, so no browser download is needed on Windows. Elsewhere, run `python -m playwright install chromium` once.
 
-Environment: `TANTALUS_PORT` (5197), `TANTALUS_DATA_DIR`, `TANTALUS_SCHEDULER=0` (no background checks), `TANTALUS_BROWSER=0` (HTTP only), `TANTALUS_OFFLINE=1`, `TANTALUS_SEARXNG_URL`, `TANTALUS_BRAVE_KEY`, `TANTALUS_FAUSTUS_DIR` (the Faustus folder for e-mail, when it is not next to this app).
+Environment: `TANTALUS_PORT` (5197), `TANTALUS_DATA_DIR`, `TANTALUS_SCHEDULER=0` (no background checks), `TANTALUS_BROWSER=0` (HTTP only), `TANTALUS_LANES=0` (no Hub browser lanes), `TANTALUS_LANE_WAIT_S` (60), `TANTALUS_OFFLINE=1`, `TANTALUS_SEARXNG_URL`, `TANTALUS_BRAVE_KEY`, `TANTALUS_FAUSTUS_DIR` (the Faustus folder for e-mail, when it is not next to this app).
 
 ## Assistants (MCP)
 

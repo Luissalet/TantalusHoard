@@ -30,12 +30,13 @@ from __future__ import annotations
 
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
+from datetime import datetime
 from typing import Any, Callable, Iterator, Mapping, Optional
 from urllib.parse import urlsplit
 
 from ..errors import TantalusError
-from ..hoard_link import fam_web
+from ..hoard_link import browser_lane, fam_web
 from ..hoard_link.web import safety
 from ..hoard_link.web.blocks import BLOCK_REASONS, detect_block
 from ..hoard_link.web.browser import BrowserRung, playwright_installed
@@ -50,6 +51,20 @@ ROBOTS_AGENT = "TantalusHoard"
 # What the engine, the extractors and the search code read from ``block_reason`` when nothing was even requested.
 _REFUSED = {"policy": "unsafe_url", "robots": "robots", "offline": "offline"}
 _TIERS = ("auto", "http", "browser", "window")
+LANE_HOLDER = "tantalus"          # who the Hub's browser lanes name when this app holds one
+LANE_HUMAN_WAIT_S = 15.0         # a person waits for the visible window to open: do not make them wait long for the lane
+
+
+def busy_text(domain: str, held_by: str = "", since: Optional[float] = None) -> str:
+    """«ocupado por X desde las HH:MM:SS»: what a read answers when another app holds the site's browser lane."""
+    when = ""
+    if since:
+        try:
+            when = datetime.fromtimestamp(float(since)).strftime("%H:%M:%S")
+        except (OverflowError, OSError, ValueError):
+            when = ""
+    text = f"ocupado por {held_by or 'otra app'}" + (f" desde las {when}" if when else "")
+    return text + (f": {domain} ya se está leyendo con un navegador (carril del Hub)" if domain else "")
 
 
 class Fetcher(_CommonsFetcher):
@@ -96,13 +111,15 @@ class Fetcher(_CommonsFetcher):
         return result
 
     @contextmanager
-    def browser_session(self, *, headless: bool = True) -> Iterator[Any]:
-        """Playwright ``BrowserContext`` on the persistent profile (bound to the calling thread)."""
+    def browser_session(self, *, headless: bool = True, url: str = "") -> Iterator[Any]:
+        """Playwright ``BrowserContext`` on the persistent profile (bound to the calling thread). ``url`` names the site the
+        session is for: the Hub's lane for it is held while the session is open (busy: ``TantalusError`` code ``busy``)."""
         rung = self._rung()
         if rung is None:
             raise TantalusError("fetch_failed", "the browser rung is disabled", "Enable it with TANTALUS_BROWSER=1.")
-        with rung.browser_session(headless=headless) as context:
-            yield context
+        with self._lane_or_raise(url, "browser session", 900.0):
+            with rung.browser_session(headless=headless) as context:
+                yield context
 
     def open_for_human(self, url: str, *, timeout_s: float = 900.0, **kw: Any) -> dict[str, Any]:
         """Visible browser on the shared profile so a person can solve a CAPTCHA / log in; returns on close. Without a local
@@ -114,7 +131,8 @@ class Fetcher(_CommonsFetcher):
                 if answer.get("ok"):
                     return {**{k: v for k, v in answer.items() if k not in ("ok", "via")}, "url": url, "via": "hub", "hub_via": answer.get("via", "")}
             raise TantalusError("fetch_failed", self._rung_unavailable_text(self.profile), "Enable it with TANTALUS_BROWSER=1.")
-        return super().open_for_human(url, timeout_s=timeout_s, **kw)
+        with self._lane_or_raise(url, "a person solves a check in a window", float(timeout_s) + 120.0, wait_s=LANE_HUMAN_WAIT_S):
+            return super().open_for_human(url, timeout_s=timeout_s, **kw)
 
     def close(self) -> None:
         super().close()
@@ -123,6 +141,44 @@ class Fetcher(_CommonsFetcher):
                 self._browser.close()
             except Exception:  # noqa: BLE001
                 pass
+
+    # ================================================================== browser lanes (Agora #265)
+    def _lane_for(self, url: str, *, purpose: str, ttl_s: float, wait_s: Optional[float] = None) -> Any:
+        """The Hub's lane for the site (and for the persistent browser profile) to hold while a browser is open on it, so no
+        other app drives the same shop, or this Edge profile, at the same moment. Nothing happens without the Hub, on a test
+        transport (``use_hub`` off) or with ``TANTALUS_LANES=0``: a ``None`` comes back. When another app keeps the lane
+        past ``lane_wait_s`` the lane comes back with ``acquired == False`` and ``held_by`` filled in."""
+        if not self.use_hub or not getattr(self.config, "lanes", True):
+            return nullcontext(None)
+        wait = float(getattr(self.config, "lane_wait_s", 60.0)) if wait_s is None else float(wait_s)
+        try:
+            return browser_lane.lane(url, holder=LANE_HOLDER, ttl_s=ttl_s, wait_s=wait, purpose=purpose,
+                                     profile=str(self.config.browser_profile_dir), raise_on_busy=False)
+        except browser_lane.LaneError:
+            return nullcontext(None)
+
+    @contextmanager
+    def _lane_or_raise(self, url: str, purpose: str, ttl_s: float, wait_s: Optional[float] = None) -> Iterator[Any]:
+        with self._lane_for(url, purpose=purpose, ttl_s=ttl_s, wait_s=wait_s) as held:
+            if held is not None and not held.acquired:
+                raise TantalusError("busy", busy_text(held.domain, held.held_by, held.since),
+                                    "Otra app tiene el carril de navegador de ese sitio; se puede reintentar en unos minutos.")
+            yield held
+
+    def _attempt_browser(self, url: str, timeout_s: float, fr: FetchResult, *, window: bool) -> FetchResult:
+        ttl = max(120.0, float(timeout_s or 30.0) * 2 + 60.0)
+        with self._lane_for(url, purpose="reading a page in a " + ("window" if window else "headless browser"), ttl_s=ttl) as held:
+            if held is not None and not held.acquired:
+                fr.tier = "window" if window else "browser"
+                fr.error = busy_text(held.domain, held.held_by, held.since)
+                fr.error_kind = "busy"           # not a block: nothing was asked of the site
+                return fr
+            return super()._attempt_browser(url, timeout_s, fr, window=window)
+
+    def _record(self, host: str, fr: FetchResult) -> None:
+        if fr.error_kind == "busy":
+            return                               # the site never saw this read: nothing to remember about the host
+        super()._record(host, fr)
 
     # ================================================================== site profiles
     def _profile_tier(self, url: str, params: Optional[Mapping[str, Any]], min_interval_s: Optional[float]) -> tuple[str, Optional[float], Any]:

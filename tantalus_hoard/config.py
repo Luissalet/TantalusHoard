@@ -26,6 +26,8 @@ class Config:
     offline: bool = False  # never touch the network (tests): every fetch answers "offline"
     scheduler: bool = True  # background checks; tests and the MCP-only mode switch it off
     browser: bool = True  # allow the headless-browser rung of the fetch ladder
+    lanes: bool = True  # take the Hub's browser lane for a site before a browser opens on it (TANTALUS_LANES=0 switches it off)
+    lane_wait_s: float = 60.0  # how long a read waits for a lane another app holds before answering "ocupado por X"
     secrets: dict[str, str] = field(default_factory=dict)  # from .env (+ environment); never written back
 
     @property
@@ -83,5 +85,7 @@ class Config:
             offline=env_flag("TANTALUS_OFFLINE"),
             scheduler=env_flag("TANTALUS_SCHEDULER", True),
             browser=env_flag("TANTALUS_BROWSER", True),
+            lanes=env_flag("TANTALUS_LANES", True),
+            lane_wait_s=env_float("TANTALUS_LANE_WAIT_S", default=60.0, minimum=0.0, maximum=600.0),
             secrets=load_dotenv(REPO_ROOT / ".env"),
         )
