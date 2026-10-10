@@ -11,6 +11,7 @@ from tantalus_hoard.config import DEFAULT_PORT
 ROOT = Path(__file__).resolve().parent.parent
 BANNED = ("chatgpt", "claude", "openai", "anthropic", "lm studio", "odysseus", "gemini", "copilot", "keepa", "camelcamelcamel", "distill.io", "visualping", "changedetection")
 FINAL_TOOLS = {
+    "fleet_status",
     "tantalus_overview", "tantalus_status", "watcher_list", "watcher_get", "watcher_create", "watcher_update", "watcher_delete",
     "watcher_run", "watcher_rescore", "target_add", "target_list", "target_get", "target_update", "target_delete", "target_check", "target_resolve",
     "inspect_url", "events_list", "events_mark_seen", "event_dismiss", "event_notify", "listings_list", "listing_set",

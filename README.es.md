@@ -1,5 +1,16 @@
 # Tantalus's Hoard
 
+## Seguimiento en Flota
+
+La herramienta de lectura `fleet_status` y `GET /api/family/fleet`, con el token
+de la app, publican cadencia, resultados terminados, pausas y una señal de los
+vigilantes que necesitan tu intervención. El Hub la descubre mediante
+`x-family.fleet`. Se omiten configuración, direcciones, consultas, notas y
+cuerpos de errores. Un intento en curso no es un éxito: los resultados salen
+de las últimas 5.000 ejecuciones conservadas. Que una comprobación haya
+terminado correctamente no demuestra que haya stock. Los resultados antiguos
+ausentes quedan sin verificar. Esta lectura no reinicia ni reintenta nada.
+
 [![CI](https://github.com/Luissalet/TantalusHoard/actions/workflows/ci.yml/badge.svg)](https://github.com/Luissalet/TantalusHoard/actions/workflows/ci.yml)
 
 [English](README.md)

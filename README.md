@@ -1,5 +1,15 @@
 # Tantalus's Hoard
 
+## Fleet monitoring
+
+The read-only `fleet_status` tool and authenticated `GET /api/family/fleet`
+publish watcher cadence, confirmed finished outcomes, pauses and a flag for
+targets needing the user. The family Hub discovers this through `x-family.fleet`.
+The response omits configuration, URLs, queries, notes and error bodies. A run
+still in progress is not a success; outcomes come from the retained 5,000 runs.
+A successful check run does not prove stock availability. Missing historical
+outcomes remain unverified. Nothing is restarted or retried by this read.
+
 [![CI](https://github.com/Luissalet/TantalusHoard/actions/workflows/ci.yml/badge.svg)](https://github.com/Luissalet/TantalusHoard/actions/workflows/ci.yml)
 
 [Español](README.es.md)

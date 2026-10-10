@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .fleet import fleet_status
+
 from dataclasses import asdict
 from typing import Any, Callable, Literal, Optional, Union
 
@@ -871,6 +873,10 @@ def run_radar_setup(svc: Services, a: RadarSetupArgs) -> dict[str, Any]:
 
 # ================================================================================ catalogue
 TOOLS: list[Tool] = [
+    Tool("fleet_status", "Watcher cadence and confirmed outcomes — flota, último éxito, bloqueo humano.\n"
+         "Published metadata only: no configuration, URLs, notes, queries or log bodies.\n"
+         "Sinónimos: flota, vigilante parado, último éxito, bloqueo humano, cadencia de vigilancia.", Empty, _ann(True),
+         lambda svc, args: fleet_status(svc)),
     Tool("tantalus_overview",
          "What is new since the last visit: alerts, buyable now, blocked, top finds. Novedades del vigilante.\n"
          "The dashboard in one call: unseen confirmed events (restock, price drop, pre-order, new SKU, second-hand find, news), targets "
