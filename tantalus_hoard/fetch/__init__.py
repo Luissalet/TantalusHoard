@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import threading
 import time
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Callable, Iterator, Mapping, Optional
 from urllib.parse import urlsplit
@@ -53,18 +53,22 @@ _REFUSED = {"policy": "unsafe_url", "robots": "robots", "offline": "offline"}
 _TIERS = ("auto", "http", "browser", "window")
 LANE_HOLDER = "tantalus"          # who the Hub's browser lanes name when this app holds one
 LANE_HUMAN_WAIT_S = 15.0         # a person waits for the visible window to open: do not make them wait long for the lane
+LANE_TTL_S = 300.0               # a lane's lease; the client renews it every third of that while the browser is open
+HUB_DOWN_FOR_S = 60.0            # once the Hub did not answer, do not ask again for this long (a refused connect costs ~2 s)
+_hub_down_until = [0.0]          # monotonic time; shared by every Fetcher in the process
 
 
 def busy_text(domain: str, held_by: str = "", since: Optional[float] = None) -> str:
-    """«ocupado por X desde las HH:MM:SS»: what a read answers when another app holds the site's browser lane."""
+    """Â«ocupado por X desde las HH:MM:SSÂ»: what a read answers when another app holds the site's browser lane."""
     when = ""
     if since:
         try:
             when = datetime.fromtimestamp(float(since)).strftime("%H:%M:%S")
         except (OverflowError, OSError, ValueError):
             when = ""
-    text = f"ocupado por {held_by or 'otra app'}" + (f" desde las {when}" if when else "")
-    return text + (f": {domain} ya se está leyendo con un navegador (carril del Hub)" if domain else "")
+    who = "otra lectura de Tantalus" if held_by == LANE_HOLDER else (held_by or "otra app")   # waiting on itself says so
+    text = f"ocupado por {who}" + (f" desde las {when}" if when else "")
+    return text + (f": {domain} ya se estÃ¡ leyendo con un navegador (carril del Hub)" if domain else "")
 
 
 class Fetcher(_CommonsFetcher):
@@ -117,7 +121,7 @@ class Fetcher(_CommonsFetcher):
         rung = self._rung()
         if rung is None:
             raise TantalusError("fetch_failed", "the browser rung is disabled", "Enable it with TANTALUS_BROWSER=1.")
-        with self._lane_or_raise(url, "browser session", 900.0):
+        with self._lane_or_raise(url, "browser session", LANE_TTL_S):
             with rung.browser_session(headless=headless) as context:
                 yield context
 
@@ -131,7 +135,7 @@ class Fetcher(_CommonsFetcher):
                 if answer.get("ok"):
                     return {**{k: v for k, v in answer.items() if k not in ("ok", "via")}, "url": url, "via": "hub", "hub_via": answer.get("via", "")}
             raise TantalusError("fetch_failed", self._rung_unavailable_text(self.profile), "Enable it with TANTALUS_BROWSER=1.")
-        with self._lane_or_raise(url, "a person solves a check in a window", float(timeout_s) + 120.0, wait_s=LANE_HUMAN_WAIT_S):
+        with self._lane_or_raise(url, "a person solves a check in a window", LANE_TTL_S, wait_s=LANE_HUMAN_WAIT_S):
             return super().open_for_human(url, timeout_s=timeout_s, **kw)
 
     def close(self) -> None:
@@ -143,19 +147,32 @@ class Fetcher(_CommonsFetcher):
                 pass
 
     # ================================================================== browser lanes (Agora #265)
-    def _lane_for(self, url: str, *, purpose: str, ttl_s: float, wait_s: Optional[float] = None) -> Any:
+    @contextmanager
+    def _lane_for(self, url: str, *, purpose: str, ttl_s: float, wait_s: Optional[float] = None) -> Iterator[Any]:
         """The Hub's lane for the site (and for the persistent browser profile) to hold while a browser is open on it, so no
         other app drives the same shop, or this Edge profile, at the same moment. Nothing happens without the Hub, on a test
         transport (``use_hub`` off) or with ``TANTALUS_LANES=0``: a ``None`` comes back. When another app keeps the lane
-        past ``lane_wait_s`` the lane comes back with ``acquired == False`` and ``held_by`` filled in."""
-        if not self.use_hub or not getattr(self.config, "lanes", True):
-            return nullcontext(None)
+        past ``lane_wait_s`` the lane comes back with ``acquired == False`` and ``held_by`` filled in. A Hub that did not answer
+        is not asked again for ``HUB_DOWN_FOR_S``."""
+        if not self.use_hub or not getattr(self.config, "lanes", True) or time.monotonic() < _hub_down_until[0]:
+            yield None
+            return
         wait = float(getattr(self.config, "lane_wait_s", 60.0)) if wait_s is None else float(wait_s)
+        token_path = getattr(self.config, "token_path", None)
         try:
-            return browser_lane.lane(url, holder=LANE_HOLDER, ttl_s=ttl_s, wait_s=wait, purpose=purpose,
-                                     profile=str(self.config.browser_profile_dir), raise_on_busy=False)
+            held = browser_lane.lane(url, holder=LANE_HOLDER, ttl_s=ttl_s, wait_s=wait, purpose=purpose,
+                                     profile=str(self.config.browser_profile_dir), raise_on_busy=False,
+                                     token_file=str(token_path) if token_path else None)
+            held.acquire()
         except browser_lane.LaneError:
-            return nullcontext(None)
+            yield None
+            return
+        try:
+            if held.via == "local":
+                _hub_down_until[0] = time.monotonic() + HUB_DOWN_FOR_S
+            yield held
+        finally:
+            held.release()
 
     @contextmanager
     def _lane_or_raise(self, url: str, purpose: str, ttl_s: float, wait_s: Optional[float] = None) -> Iterator[Any]:
@@ -166,8 +183,8 @@ class Fetcher(_CommonsFetcher):
             yield held
 
     def _attempt_browser(self, url: str, timeout_s: float, fr: FetchResult, *, window: bool) -> FetchResult:
-        ttl = max(120.0, float(timeout_s or 30.0) * 2 + 60.0)
-        with self._lane_for(url, purpose="reading a page in a " + ("window" if window else "headless browser"), ttl_s=ttl) as held:
+        with self._lane_for(url, purpose="reading a page in a " + ("window" if window else "headless browser"),
+                            ttl_s=LANE_TTL_S) as held:
             if held is not None and not held.acquired:
                 fr.tier = "window" if window else "browser"
                 fr.error = busy_text(held.domain, held.held_by, held.since)

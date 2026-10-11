@@ -78,7 +78,9 @@ class FakeBrowser:
 @pytest.fixture()
 def hub(monkeypatch):
     """A stub Hub with lane endpoints; ``busy`` makes ``acquire`` answer that another app holds the lane."""
-    state = SimpleNamespace(events=[], busy=None)
+    import tantalus_hoard.fetch as fetch_mod
+    fetch_mod._hub_down_until[0] = 0.0                      # a Hub that was down in another test is not remembered here
+    state = SimpleNamespace(events=[], busy=None, auth=[])
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -98,6 +100,7 @@ def hub(monkeypatch):
         def do_POST(self):  # noqa: N802
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
             state.events.append((self.path, body))
+            state.auth.append(self.headers.get("Authorization"))
             if self.path == "/api/lane/acquire":
                 if state.busy:
                     return self._reply({"ok": True, "granted": False, "busy": True, "queue_seq": 7, "waiting": 0, **state.busy})
@@ -113,6 +116,7 @@ def hub(monkeypatch):
     state.requests = lambda path: [b for p, b in state.events if p == path]
     yield state
     srv.shutdown()
+    fetch_mod._hub_down_until[0] = 0.0
 
 
 @pytest.fixture()
@@ -125,7 +129,7 @@ def env(tmp_path, hub):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, text=HTML, headers={"content-type": "text/html"})
 
-    def make(**kw) -> Fetcher:
+    def make(handler=handler, **kw) -> Fetcher:
         return Fetcher(config, db, transport=httpx.MockTransport(handler), clock=clock, sleep=clock.sleep,
                        resolver=lambda host, port: PUBLIC, browser=browser, **kw)
 
@@ -221,6 +225,78 @@ def test_open_for_human_reports_busy_quickly(env, monkeypatch):
 def test_busy_text():
     assert busy_text("example.com", "faustus", T0).startswith("ocupado por faustus desde las ")
     assert busy_text("", "", None) == "ocupado por otra app"
+    assert busy_text("example.com", "tantalus", T0).startswith("ocupado por otra lectura de Tantalus desde las ")
+
+
+def _challenge(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(403, text="<html><title>Just a moment...</title></html>",
+                          headers={"content-type": "text/html", "cf-mitigated": "challenge"})
+
+
+def test_a_busy_lane_in_the_auto_ladder_is_not_recorded_as_a_block(env):
+    """P2 of the review: HTTP 403 + Cloudflare challenge escalates to the browser; with the lane held by another app the
+    answer is *busy, retry later* and the site is not marked blocked (no failure, no cooldown)."""
+    env.hub.busy = {"held_by": "faustus", "since": T0}
+    fetcher = env.make(handler=_challenge, use_hub=True)
+    fr = fetcher.get(URL)                                                    # tier "auto": http first, then the browser
+    assert fr.error_kind == "busy" and fr.ok is False and fr.blocked is False and fr.block_reason == ""
+    assert "ocupado por faustus" in fr.error and "browser fallback failed" not in fr.error
+    assert env.browser.calls == []
+    row = fetcher.state.get("shop.example.co.uk")
+    assert not row.get("fail_count") and not row.get("blocked_until_ts") and not row.get("block_reason")
+    # the lane frees up: the same ladder goes through the browser and gets the page
+    env.hub.busy = None
+    fr = fetcher.get(URL)
+    assert fr.ok and fr.tier == "browser" and env.browser.calls == [URL]
+    assert not fetcher.state.get("shop.example.co.uk").get("blocked_until_ts")
+
+
+def test_the_auto_ladder_still_records_a_real_block(env):
+    """Without the Hub's lanes in the way, the cascade is what it always was: the block is remembered."""
+    class Failing(FakeBrowser):
+        def fetch(self, url, settle_s=None, *, timeout_s=None):
+            return FetchResult(url=url, tier="browser", status=403, ok=False, blocked=True, block_reason="cloudflare",
+                               error="blocked", error_kind="blocked")
+
+    env.browser.__class__ = Failing
+    fetcher = env.make(handler=_challenge, use_hub=False)
+    fr = fetcher.get(URL)
+    assert fr.blocked and fr.block_reason == "cloudflare"
+    row = fetcher.state.get("shop.example.co.uk")
+    assert row.get("fail_count") == 2 and row.get("blocked_until_ts")
+
+
+def test_waiting_on_its_own_profile_says_so(env):
+    env.hub.busy = {"held_by": "tantalus", "since": T0, "purpose": "reading a page in a headless browser"}
+    fr = env.make(use_hub=True).get(URL, tier="browser")
+    assert fr.error_kind == "busy" and fr.error.startswith("ocupado por otra lectura de Tantalus desde las ")
+
+
+def test_a_hub_that_did_not_answer_is_not_asked_again_for_a_minute(env, monkeypatch):
+    import tantalus_hoard.fetch as fetch_mod
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        dead = s.getsockname()[1]
+    monkeypatch.setenv("HOARD_HUB_URL", f"http://127.0.0.1:{dead}")
+    calls = []
+    real = fetch_mod.browser_lane.lane
+    monkeypatch.setattr(fetch_mod.browser_lane, "lane", lambda *a, **k: calls.append(1) or real(*a, **k))
+    fetcher = env.make(use_hub=True)
+    assert fetcher.get(URL, tier="browser").ok and len(calls) == 1
+    assert fetch_mod._hub_down_until[0] > 0
+    assert fetcher.get(URL, tier="browser").ok and len(calls) == 1               # no second attempt to reach the Hub
+    fetch_mod._hub_down_until[0] = 0.0                                             # a minute later it asks again
+    assert fetcher.get(URL, tier="browser").ok and len(calls) == 2
+
+
+def test_the_lane_is_taken_with_the_apps_token_and_a_short_renewed_ttl(env, tmp_path):
+    (tmp_path / "mcp-token").write_text("tok-tantalus")
+    fetcher = env.make(use_hub=True)
+    fetcher.get(URL, tier="browser")
+    with fetcher.browser_session(url="https://www.facebook.com/"):
+        pass
+    assert set(env.hub.auth) == {"Bearer tok-tantalus"}
+    assert [b["ttl_s"] for b in env.hub.requests("/api/lane/acquire")] == [300.0, 300.0]    # no 900 s / 1020 s leases
 
 
 def test_engine_retries_soon_without_a_failure_or_an_observation(svc):
