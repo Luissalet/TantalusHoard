@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { changedFields } from "../copilot-context.js";
 import { api } from "../api.js";
 import { useApp } from "../context.js";
 import { EventCard } from "../components/cards.jsx";
@@ -17,6 +18,18 @@ function TargetEditForm({ target, onSaved, onCancel }) {
     msrp: s(target.msrp), price_ceiling: s(target.price_ceiling), price_threshold: s(target.price_threshold), seller_policy: target.seller_policy || "retail_only",
     fetch_tier: target.fetch_tier || "auto", adapter: s(target.adapter) || "auto", interval_min: s(target.interval_min), status: target.status === "paused" ? "paused" : "active",
   });
+  const initial = useRef(f);
+  const latest = useRef(f);
+  latest.current = f;
+  useEffect(() => {
+    const provide = event => {
+      if (event.detail.objectId !== target.id) return;
+      const fields = changedFields(initial.current, latest.current);
+      event.detail.provide({ kind: 'target-form', dirty: Object.keys(fields).length > 0, fields });
+    };
+    window.addEventListener('tantalus:context-request', provide);
+    return () => window.removeEventListener('tantalus:context-request', provide);
+  }, [target.id]);
   const [error, setError] = useState(null);
   const inp = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
   const submit = (e) => {
@@ -28,13 +41,17 @@ function TargetEditForm({ target, onSaved, onCancel }) {
         target_id: target.id, label: f.label.trim(), url: f.url.trim(), retailer: f.retailer.trim(),
         store_ids: splitList(f.store_ids), seller_policy: f.seller_policy, fetch_tier: f.fetch_tier, adapter: f.adapter.trim() || "auto", status: f.status,
       };
+      const changed = changedFields(initial.current, f);
+      for (const key of Object.keys(args)) if (key !== 'target_id' && !(key in changed)) delete args[key];
       const clear = [];
       for (const k of ["msrp", "price_ceiling", "price_threshold", "interval_min"]) {
+        if (!(k in changed)) continue;
         const n = parseNum(f[k]);
         if (n !== undefined) args[k] = k === "interval_min" ? Math.round(n) : n;
         else if (target[k] !== null && target[k] !== undefined) clear.push(k);
       }
       for (const k of ["sku", "ean"]) {
+        if (!(k in changed)) continue;
         const v = f[k].trim();
         if (v) args[k] = v; else if (target[k]) clear.push(k);
       }

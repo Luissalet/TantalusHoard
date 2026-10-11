@@ -47,6 +47,8 @@ def create_app(config: Config | None = None, services: Services | None = None) -
 
     for router in ROUTERS:
         app.include_router(router)
+    from .api.copilot import create_router as copilot_router
+    app.include_router(copilot_router(config))
 
     install_pwa(app, name="Tantalus's Hoard", short_name="Tantalus", theme="#4a2a6b", background="#140d1c", cache="tantalus-hoard",
                 lang="es", static_dir=STATIC_DIR, version=__version__)

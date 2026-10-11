@@ -3,6 +3,7 @@ import { api, errorText } from "./api.js";
 import { initialLang, makeT, saveLang } from "./i18n.js";
 import { AppContext } from "./context.js";
 import { ConfirmDialog, Icon } from "./components/ui.jsx";
+import FaustusCopilot from './components/FaustusCopilot.jsx';
 import Novedades from "./pages/Novedades.jsx";
 import Watchers from "./pages/Watchers.jsx";
 import Target from "./pages/Target.jsx";
@@ -209,6 +210,7 @@ export default function App() {
         </main>
       </div>
       <Toast toast={toast} onClose={() => setToast(null)} />
+      <FaustusCopilot route={route} lang={lang} onChanged={refreshDash} />
       <ConfirmDialog request={confirmReq} onClose={closeConfirm} />
     </AppContext.Provider>
   );

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.js";
+import { changedFields, configPatch } from "../copilot-context.js";
 import { useApp } from "../context.js";
 import { joinLines, joinList, parseNum, splitLines, splitList } from "../format.js";
 import { ALERT_TYPES, MODES, MODE_META, SELLER_POLICIES } from "../meta.js";
@@ -198,6 +199,18 @@ export default function WatcherForm({ watcher, draft, onSaved, onCancel }) {
   const [busy, run] = useBusy();
   const [error, setError] = useState(null);
   const [form, setForm] = useState(() => (watcher ? formFromWatcher(watcher, packs) : draft ? formFromDraft(draft, packs) : emptyForm("availability")));
+  const initial = useRef(watcher);
+  const latestForm = useRef(form);
+  latestForm.current = form;
+  useEffect(() => {
+    const provide = event => {
+      if (event.detail.objectId !== (watcher?.id || 'new')) return;
+      const fields = watcher ? changedFields(formFromWatcher(initial.current, packs), latestForm.current) : latestForm.current;
+      event.detail.provide({ kind: 'watcher-form', draft: !watcher, dirty: Object.keys(fields).length > 0, fields });
+    };
+    window.addEventListener('tantalus:context-request', provide);
+    return () => window.removeEventListener('tantalus:context-request', provide);
+  }, [watcher?.id, packs]);
   const queriesTouched = useRef(!!draft || editing);
   useEffect(() => { loadPacks(); }, [loadPacks]);
 
@@ -266,14 +279,22 @@ export default function WatcherForm({ watcher, draft, onSaved, onCancel }) {
     if (problem) { setError(new Error(problem)); return; }
     setError(null);
     run("save", async () => {
-      const config = buildConfig(form, watcher?.config, packs);
+      const original = initial.current;
+      const config = buildConfig(form, original?.config, packs);
       const common = {
         name: form.name.trim(), config, interval_min: Math.round(parseNum(form.interval_min)), enabled: form.enabled, notes: form.notes,
         discovery_interval_h: form.mode === "availability" ? Math.round(parseNum(form.discovery_interval_h) ?? 24) : watcher?.discovery_interval_h ?? 24,
       };
       let result;
       try {
-        if (editing) result = await api.call("watcher_update", { watcher_id: watcher.id, ...common });
+        if (editing) {
+          const baseline = formFromWatcher(original, packs);
+          const fields = changedFields(baseline, form);
+          const patch = Object.fromEntries(Object.entries(common).filter(([key]) => key !== 'config' && key in fields));
+          const delta = configPatch(buildConfig(baseline, original.config, packs), config);
+          if (Object.keys(delta).length) patch.config_patch = delta;
+          result = await api.call("watcher_update", { watcher_id: original.id, ...patch });
+        }
         else result = await api.call("watcher_create", { ...common, mode: form.mode, targets: form.mode === "availability" ? splitLines(form.targets) : [] });
       } catch (err) {
         setError(err);

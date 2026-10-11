@@ -61,6 +61,7 @@ class WatcherUpdateArgs(BaseModel):
     watcher_id: str = Field(..., max_length=40)
     name: Optional[str] = Field(None, max_length=120)
     config: Optional[dict[str, Any]] = Field(None, description="Replaces the whole config; read watcher_get first.")
+    config_patch: Optional[dict[str, Any]] = Field(None, description="Atomically merges changed config fields; nested objects merge, arrays replace, null removes a key. Other fields are preserved.")
     interval_min: Optional[int] = Field(None, ge=5, le=7 * 24 * 60)
     discovery_interval_h: Optional[int] = Field(None, ge=0, le=24 * 30)
     enabled: Optional[bool] = None
@@ -305,21 +306,37 @@ def run_watcher_create(svc: Services, a: WatcherCreateArgs) -> dict[str, Any]:
 
 
 def run_watcher_update(svc: Services, a: WatcherUpdateArgs) -> dict[str, Any]:
-    fields = {k: v for k, v in a.model_dump().items() if k not in ("watcher_id", "budget_category") and v is not None}
-    if a.budget_category is not None or a.enabled:
-        cfg = dict(fields.get("config") if fields.get("config") is not None else svc.store.watcher(a.watcher_id).get("config") or {})
-        if a.budget_category is not None:
-            cfg["budget_category"] = a.budget_category.strip()
-            if not cfg["budget_category"]:
-                cfg.pop("budget_category")
-        if a.enabled and cfg.get("status") == "bought":          # switching a bought watcher back on makes it watch again
-            cfg.pop("status", None)
-            cfg.pop("bought", None)
-        fields["config"] = cfg
-    w = svc.store.update_watcher(a.watcher_id, **fields)
-    if w["mode"] == MODE_INFORMATION and a.config is not None:
-        svc.store.sync_info_sources(w["id"], a.config.get("sources") or [])
-    return _watcher_view(svc, w, detail=True)
+    with svc.store.db.transaction():
+        fields = {k: v for k, v in a.model_dump().items() if k not in ("watcher_id", "budget_category", "config_patch") and v is not None}
+        if a.config_patch is not None:
+            cfg = fields.get('config', svc.store.watcher(a.watcher_id).get('config') or {})
+            fields['config'] = _merge_config_patch(cfg, a.config_patch)
+        if a.budget_category is not None or a.enabled:
+            cfg = dict(fields.get("config") if fields.get("config") is not None else svc.store.watcher(a.watcher_id).get("config") or {})
+            if a.budget_category is not None:
+                cfg["budget_category"] = a.budget_category.strip()
+                if not cfg["budget_category"]:
+                    cfg.pop("budget_category")
+            if a.enabled and cfg.get("status") == "bought":          # switching a bought watcher back on makes it watch again
+                cfg.pop("status", None)
+                cfg.pop("bought", None)
+            fields["config"] = cfg
+        w = svc.store.update_watcher(a.watcher_id, **fields)
+        if w["mode"] == MODE_INFORMATION and (a.config is not None or a.config_patch is not None):
+            svc.store.sync_info_sources(w["id"], w['config'].get("sources") or [])
+        return _watcher_view(svc, w, detail=True)
+
+
+def _merge_config_patch(current, patch):
+    merged = dict(current) if isinstance(current, dict) else {}
+    for key, value in patch.items():
+        if value is None:
+            merged.pop(key, None)
+        elif isinstance(value, dict):
+            merged[key] = _merge_config_patch(merged.get(key), value)
+        else:
+            merged[key] = value
+    return merged
 
 
 def run_watcher_delete(svc: Services, a: DeleteArgs) -> dict[str, Any]:

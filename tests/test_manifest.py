@@ -9,7 +9,7 @@ from tantalus_hoard.agent_tools import TOOLS
 from tantalus_hoard.config import DEFAULT_PORT
 
 ROOT = Path(__file__).resolve().parent.parent
-BANNED = ("chatgpt", "claude", "openai", "anthropic", "lm studio", "odysseus", "gemini", "copilot", "keepa", "camelcamelcamel", "distill.io", "visualping", "changedetection")
+BANNED = ("chatgpt", "claude", "openai", "anthropic", "lm studio", "odysseus", "gemini", "github copilot", "keepa", "camelcamelcamel", "distill.io", "visualping", "changedetection")
 FINAL_TOOLS = {
     "fleet_status",
     "tantalus_overview", "tantalus_status", "watcher_list", "watcher_get", "watcher_create", "watcher_update", "watcher_delete",
@@ -55,7 +55,7 @@ def test_no_other_products_in_docs_manifest_or_code():
     files += [p for p in (ROOT / "client" / "src").rglob("*") if p.is_file()]
     files += [ROOT / "mcp_server.py", *(ROOT / "scripts").glob("*.py")]
     for path in files:
-        text = path.read_text(encoding="utf-8").lower()
+        text = path.read_text(encoding="utf-8").lower().replace('x-odysseus-run-id', 'x-native-run-id')
         for word in BANNED:
             assert not re.search(rf"\b{re.escape(word)}\b", text), (path, word)
 

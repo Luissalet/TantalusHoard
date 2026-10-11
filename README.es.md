@@ -203,3 +203,10 @@ python -m pytest -q
 ## Licencia
 
 MIT, © Luis María Salete Cuartero.
+El botón Faustus abre el panel común de copilot. Faustus guarda los chats,
+borradores e historial y ejecuta el agente con el modelo global configurado.
+Tantalus aporta sus herramientas, el vigilante u oferta abierta y los campos
+pendientes del formulario. Los chats también están en Faustus Studio. Las listas
+se actualizan al terminar el turno; guardar campos manuales conserva los cambios
+del agente en otros campos. El servicio se configura en `data/backend.json` o
+`TANTALUS_FAUSTUS_URL`.

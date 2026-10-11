@@ -359,6 +359,10 @@ export function useLoad(fn, deps) {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
+  useEffect(() => {
+    window.addEventListener('tantalus:copilot-updated', load);
+    return () => window.removeEventListener('tantalus:copilot-updated', load);
+  }, [load]);
   return { ...state, reload: load };
 }
 

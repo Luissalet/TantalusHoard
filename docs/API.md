@@ -700,3 +700,17 @@ Annotations: none.
 - `POST /api/dashboard/visit` — marks everything seen and records the visit.
 - `POST /api/ui/call` `{name, arguments}` — any tool above, uncapped.
 - `GET /api/targets/{id}/history?limit=300` — observations and price history.
+## Shared Faustus copilot
+
+`watcher_update` accepts `config_patch`: nested objects merge, arrays replace,
+and null removes an explicit key. The merge reads and writes inside one native
+database transaction, preserving other changes. `config` still replaces the full
+configuration. Notes-only manual saves do not send configuration.
+
+- `GET /api/copilot/info`: app identity, stable data space, panel and settings URL.
+- `GET /api/copilot/panel.js`: the panel served by the configured Faustus instance.
+- `POST /api/copilot/proxy`: forwards native JSON, multipart and streaming requests
+  to Faustus. The app namespace is injected on the server; credentials never enter
+  the browser. Conversations, imports, drafts and turns use Faustus's canonical
+  API and the HoardLink `hub_copilot_request` MCP tool. Tantalus's 57 domain tools
+  remain available through its existing standalone MCP server.
