@@ -1,5 +1,12 @@
 # Tantalus's Hoard
 
+The Faustus button opens the shared copilot panel. Faustus owns chats, drafts,
+history, model selection and agent execution; Tantalus contributes its native
+tools, the current watcher/target and pending manual form fields. Conversations
+remain available in Faustus Studio. Domain lists refresh after a turn, and saving
+manual fields preserves simultaneous agent changes to other fields. Configure
+the family Faustus endpoint in `data/backend.json` or `TANTALUS_FAUSTUS_URL`.
+
 ## Fleet monitoring
 
 The read-only `fleet_status` tool and authenticated `GET /api/family/fleet`
