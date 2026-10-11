@@ -700,6 +700,7 @@ Annotations: none.
 - `POST /api/dashboard/visit` — marks everything seen and records the visit.
 - `POST /api/ui/call` `{name, arguments}` — any tool above, uncapped.
 - `GET /api/targets/{id}/history?limit=300` — observations and price history.
+
 ## Shared Faustus copilot
 
 `watcher_update` accepts `config_patch`: nested objects merge, arrays replace,
