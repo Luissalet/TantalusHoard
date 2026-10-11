@@ -349,7 +349,7 @@ def test_agenda_lists_radar_releases_and_dated_targets(client):
 def test_manifest_declares_the_agenda():
     from pathlib import Path
     manifest = json.loads((Path(__file__).resolve().parent.parent / "faustus-plugin.json").read_text(encoding="utf-8"))
-    assert manifest["x-family"] == {"agenda": True}
+    assert manifest["x-family"]["agenda"] is True and manifest["x-family"]["fleet"] is True
 
 
 # ============================================================================ 2. mail through the hub

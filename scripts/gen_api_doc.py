@@ -34,7 +34,9 @@ def main() -> int:
                 desc = (spec.get("description") or "").replace("|", "\\|")
                 lines.append(f"| `{name}` ({kind}) | {'yes' if name in required else 'no'} | {desc} |")
         lines.append("")
-    lines += ["## REST routes for the UI", "", "- `GET /api/health`, `GET /api/status`",
+    lines += ["## REST routes for the UI", "", "- `GET /api/health` (the shared probe: `service`, `version`, `dataDirConfigured`, `offline`, `counts`, `scheduler`, `hoard_link`), `GET /api/status`",
+              "- `GET /api/agent/tools` (catalogue, no token) and `POST /api/agent/call` (Bearer token) are the MCP bridge's routes. Every error is JSON `{error, code?, hint?, details?, issues?}`: 400 `invalid_arguments` for bad arguments, 401 for a wrong token, 404 `unknown_tool`/`not_found`, and the app's own codes (`fetch_failed` 502, `blocked`/`needs_human`/`robots_disallowed` 409, `rate_limited` 429, `unsafe_url` 400...). An unknown `/api/*` path is a JSON 404.",
+              "- `GET /api/family/fleet` (Bearer token) — the same data as `fleet_status`: per watcher the effective cadence (shortest live target interval; targets waiting for you at least 180 min; failing targets back off; second-hand and information sweeps at least 10 min), retained finished outcomes and whether a target needs you. A watcher with nothing to check (no live targets, no discovery) is not published.",
               "- `GET /api/dashboard` — news (unseen confirmed events), buyable now, needs human, watchers, top listings, material news, "
               "proposed URLs, recent events, scheduler.",
               "- `POST /api/dashboard/visit` — marks everything seen and records the visit.",

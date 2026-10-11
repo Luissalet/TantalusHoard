@@ -10,6 +10,11 @@ still in progress is not a success; outcomes come from the retained 5,000 runs.
 A successful check run does not prove stock availability. Missing historical
 outcomes remain unverified. Nothing is restarted or retried by this read.
 
+The cadence it publishes is the one the scheduler really keeps, not the watcher's default: the shortest live
+target interval (a target that needs you is revisited every 3 hours at most often, a failing one backs off), and
+second-hand and information sweeps never faster than every 10 minutes. A watcher with nothing to check yet (no
+live target and no discovery) is not published, so it cannot be reported as silently stopped.
+
 [![CI](https://github.com/Luissalet/TantalusHoard/actions/workflows/ci.yml/badge.svg)](https://github.com/Luissalet/TantalusHoard/actions/workflows/ci.yml)
 
 [Español](README.es.md)

@@ -11,6 +11,12 @@ de las últimas 5.000 ejecuciones conservadas. Que una comprobación haya
 terminado correctamente no demuestra que haya stock. Los resultados antiguos
 ausentes quedan sin verificar. Esta lectura no reinicia ni reintenta nada.
 
+La cadencia publicada es la que el planificador cumple de verdad, no el valor por defecto del vigilante: el
+intervalo más corto de sus objetivos vivos (uno que espera por ti se revisa como mucho cada 3 horas, uno que
+falla se espacia) y los barridos de segunda mano e información nunca más rápido que cada 10 minutos. Un
+vigilante sin nada que comprobar todavía (sin objetivos vivos ni descubrimiento) no se publica, así que no
+puede salir como parado en silencio.
+
 [![CI](https://github.com/Luissalet/TantalusHoard/actions/workflows/ci.yml/badge.svg)](https://github.com/Luissalet/TantalusHoard/actions/workflows/ci.yml)
 
 [English](README.md)
