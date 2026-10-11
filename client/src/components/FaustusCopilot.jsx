@@ -48,7 +48,7 @@ export default function FaustusCopilot({ route, lang, onChanged }) {
           const { route: view, lang: locale } = current.current;
           const origin = { app_id:info.app_id, app_name:info.app_name, data_space_id:info.data_space_id, surface:'editor', tool_server_id:info.tool_server_id };
           let watcher, target;
-          if (view.page === 'watchers' && view.param) watcher = await api.call('watcher_get', {watcher_id:view.param});
+          if (view.page === 'watchers' && view.param && view.param !== 'new') watcher = await api.call('watcher_get', {watcher_id:view.param});
           if (view.page === 'target' && view.param) {
             const result = await api.call('target_get', {target_id:view.param});
             target = result.target;

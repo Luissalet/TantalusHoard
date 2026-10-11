@@ -203,11 +203,10 @@ export default function WatcherForm({ watcher, draft, onSaved, onCancel }) {
   const latestForm = useRef(form);
   latestForm.current = form;
   useEffect(() => {
-    if (!watcher) return;
     const provide = event => {
-      if (event.detail.objectId !== watcher.id) return;
-      const fields = changedFields(formFromWatcher(initial.current, packs), latestForm.current);
-      event.detail.provide({ kind: 'watcher-form', dirty: Object.keys(fields).length > 0, fields });
+      if (event.detail.objectId !== (watcher?.id || 'new')) return;
+      const fields = watcher ? changedFields(formFromWatcher(initial.current, packs), latestForm.current) : latestForm.current;
+      event.detail.provide({ kind: 'watcher-form', draft: !watcher, dirty: Object.keys(fields).length > 0, fields });
     };
     window.addEventListener('tantalus:context-request', provide);
     return () => window.removeEventListener('tantalus:context-request', provide);
