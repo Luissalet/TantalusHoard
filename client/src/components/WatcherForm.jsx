@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.js";
-import { changedFields, mergeChanges } from "../copilot-context.js";
+import { changedFields, configPatch } from "../copilot-context.js";
 import { useApp } from "../context.js";
 import { joinLines, joinList, parseNum, splitLines, splitList } from "../format.js";
 import { ALERT_TYPES, MODES, MODE_META, SELLER_POLICIES } from "../meta.js";
@@ -281,10 +281,7 @@ export default function WatcherForm({ watcher, draft, onSaved, onCancel }) {
     setError(null);
     run("save", async () => {
       const original = initial.current;
-      const fresh = editing ? await api.call('watcher_get', { watcher_id: original.id }) : null;
-      const config = editing ? mergeChanges(
-        buildConfig(formFromWatcher(original, packs), original.config, packs),
-        buildConfig(form, original.config, packs), fresh.config) : buildConfig(form, null, packs);
+      const config = buildConfig(form, original?.config, packs);
       const common = {
         name: form.name.trim(), config, interval_min: Math.round(parseNum(form.interval_min)), enabled: form.enabled, notes: form.notes,
         discovery_interval_h: form.mode === "availability" ? Math.round(parseNum(form.discovery_interval_h) ?? 24) : watcher?.discovery_interval_h ?? 24,
@@ -294,7 +291,9 @@ export default function WatcherForm({ watcher, draft, onSaved, onCancel }) {
         if (editing) {
           const baseline = formFromWatcher(original, packs);
           const fields = changedFields(baseline, form);
-          const patch = Object.fromEntries(Object.entries(common).filter(([key]) => key === 'config' || key in fields));
+          const patch = Object.fromEntries(Object.entries(common).filter(([key]) => key !== 'config' && key in fields));
+          const delta = configPatch(buildConfig(baseline, original.config, packs), config);
+          if (Object.keys(delta).length) patch.config_patch = delta;
           result = await api.call("watcher_update", { watcher_id: original.id, ...patch });
         }
         else result = await api.call("watcher_create", { ...common, mode: form.mode, targets: form.mode === "availability" ? splitLines(form.targets) : [] });

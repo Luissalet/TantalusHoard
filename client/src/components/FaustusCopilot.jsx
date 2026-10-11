@@ -77,6 +77,10 @@ export default function FaustusCopilot({ route, lang, onChanged }) {
     void mount();
     return () => { disposed = true; panel?.remove(); };
   }, [open, reference]);
+  useEffect(() => {
+    const panel = container.current?.querySelector('faustus-chat');
+    if (panel) panel.locale = lang;
+  }, [lang]);
   return <>
     <button type="button" className="btn btn-sm tantalus-copilot-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>Faustus</button>
     {open && <aside className="tantalus-copilot" aria-label="Faustus">
