@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { editorContext } from '../copilot-context.js';
+import faustusMark from '../assets/faustus-mark.svg';
 import '../copilot.css';
 
 /** Domain context only; chat, drafts, retries and tools execution live in Faustus. */
@@ -82,7 +83,7 @@ export default function FaustusCopilot({ route, lang, onChanged }) {
     if (panel) panel.locale = lang;
   }, [lang]);
   return <>
-    <button type="button" className="btn btn-sm tantalus-copilot-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>Faustus</button>
+    <button type="button" className="tantalus-copilot-toggle" aria-label="Faustus" aria-expanded={open} onClick={() => setOpen(!open)}><img src={faustusMark} alt="" aria-hidden="true" /></button>
     {open && <aside className="tantalus-copilot" aria-label="Faustus">
       <header><strong>Faustus · Tantalus</strong><button type="button" className="btn btn-sm" onClick={() => setOpen(false)} aria-label={lang === 'es' ? 'Cerrar Faustus' : 'Close Faustus'}>×</button></header>
       {error && <p role="alert">{error}</p>}
