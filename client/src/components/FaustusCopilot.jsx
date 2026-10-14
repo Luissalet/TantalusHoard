@@ -73,7 +73,7 @@ export default function FaustusCopilot({ route, lang, onChanged }) {
         container.current.replaceChildren(panel);
         await panel.loadHistory();
         setError('');
-      } catch (problem) { if (!disposed) setError(String(problem.message || problem)); }
+      } catch (problem) { if (!disposed) setError(((current.current.lang) === 'es' ? 'Faustus no está disponible ahora mismo. Tantalus sigue funcionando y tu borrador se conserva; cierra y vuelve a abrir el panel cuando Faustus esté en marcha.' : 'Faustus is not available right now. Tantalus keeps working and your draft is kept; close and reopen the panel once Faustus is running.') + ' (' + String(problem.message || problem) + ')'); }
     }
     void mount();
     return () => { disposed = true; panel?.remove(); };
