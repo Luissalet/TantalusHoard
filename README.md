@@ -1,3 +1,7 @@
+> **Absorbed by [Hermes's Hoard](https://github.com/Luissalet/HermesHoard).** All functions and stored data continue in the merged app. This repository is retained as historical source; its Hub entry provides compatibility only and cannot launch a standalone server. Start Hermes's Hoard and explicitly enable the modules you need; all default OFF. Existing data stays in its original folders.
+>
+> The documentation below describes the incorporated engine. Use the linked repository for current installation and operation.
+
 # Tantalus's Hoard
 
 The Faustus button opens the shared copilot panel. Faustus owns chats, drafts,

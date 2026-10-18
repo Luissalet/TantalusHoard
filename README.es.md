@@ -1,3 +1,7 @@
+> **Absorbido por [Hermes's Hoard](https://github.com/Luissalet/HermesHoard).** Todas sus funciones y datos continúan en la aplicación fusionada. Este repositorio queda como procedencia histórica; su entrada del Hub solo conserva compatibilidad y ya no puede lanzar un servidor propio. Inicia Hermes's Hoard y activa allí las funciones que quieras; todas están desactivadas por defecto. Los datos permanecen en sus carpetas originales.
+>
+> La documentación que sigue describe el motor incorporado; para instalación y uso actuales, consulta el repositorio enlazado.
+
 # Tantalus's Hoard
 
 ## Copilot de Faustus
